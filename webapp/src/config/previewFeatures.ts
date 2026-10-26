@@ -113,7 +113,12 @@ export type PreviewFeature =
    * til-backend's first real Choreo deployment and the Google Chat App's
    * Space/Dialog registration (outside this codebase) before going live.
    */
-  | "til";
+  | "til"
+  /**
+   * Marketing Ops → Campaign Tracker → Pacing tab. The BudgetSyncPacingPanel
+   * is still being built out; this flag hides the tab until it is ready.
+   */
+  | "campaignTrackerPacing";
 
 /**
  * Whether a preview feature should be shown.
