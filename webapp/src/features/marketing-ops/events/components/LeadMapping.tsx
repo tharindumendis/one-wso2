@@ -325,8 +325,8 @@ export default function LeadMapping({
         </Alert>
       ) : (
         <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
-          Values are copied exactly as they are in the file. Check the mapping below, download the workbook, make any
-          changes, then upload it in My Submissions.
+          Values are copied exactly as they are in the file. Check the mapping below, then create the submission. You can
+          fix individual rows in My Submissions before sending it for review.
         </Typography>
       )}
 
