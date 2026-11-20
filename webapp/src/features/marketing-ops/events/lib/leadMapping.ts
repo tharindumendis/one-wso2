@@ -121,7 +121,9 @@ export function applyMapping(rows: string[][], headerRow: number, defs: FieldDef
 
 /** The mapping after the person picks `choice` for the column `field`. A split pick sets
  *  both name columns to the two halves of that source; a plain pick on one half of a split
- *  clears the other half, which no longer has a whole name to come from. */
+ *  clears the other half, which no longer has a whole name to come from. Picking any source
+ *  also clears that source from every other target, so each source column maps to at most
+ *  one template column. */
 export function choose(
   mapping: MappingEntry[],
   field: string,
@@ -143,22 +145,39 @@ export function choose(
     list.some((entry) => entry.field_name === name) ? list : [...list, mine(name, null, null)];
   const current = mapping.find((entry) => entry.field_name === field);
 
+  let result: MappingEntry[];
+
   if (choice?.split && pair && partner) {
-    return withEntry(withEntry(mapping, pair.first), pair.last).map((entry) =>
+    result = withEntry(withEntry(mapping, pair.first), pair.last).map((entry) =>
       entry.field_name === pair.first
         ? mine(pair.first, choice.source, "first")
         : entry.field_name === pair.last
           ? mine(pair.last, choice.source, "last")
           : entry,
     );
+  } else {
+    result = withEntry(mapping, field).map((entry) => {
+      if (entry.field_name === field) return mine(field, choice?.source ?? null, null);
+      if (current?.split && entry.field_name === partner && entry.split) {
+        return mine(entry.field_name, null, null);
+      }
+      return entry;
+    });
   }
-  return withEntry(mapping, field).map((entry) => {
-    if (entry.field_name === field) return mine(field, choice?.source ?? null, null);
-    if (current?.split && entry.field_name === partner && entry.split) {
-      return mine(entry.field_name, null, null);
-    }
-    return entry;
-  });
+
+  // One source column → one template column. Clear any entry that now shares the
+  // chosen source_index with a field that was just assigned it.
+  if (choice !== null) {
+    const justAssigned =
+      choice.split && pair && partner ? new Set([pair.first, pair.last]) : new Set([field]);
+    return result.map((entry) =>
+      !justAssigned.has(entry.field_name) && entry.source_index === choice.source
+        ? mine(entry.field_name, null, null)
+        : entry,
+    );
+  }
+
+  return result;
 }
 
 /** Why a template column wants a second look: a required column with no source, or a
