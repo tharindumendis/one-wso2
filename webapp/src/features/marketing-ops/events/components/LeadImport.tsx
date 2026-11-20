@@ -15,22 +15,33 @@
 // under the License.
 
 import { useRef, useState, type DragEvent } from "react";
-import { Alert, Box, Button, CircularProgress, MenuItem, Select, Typography } from "@wso2/oxygen-ui";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  CircularProgress,
+  MenuItem,
+  Select,
+  TextField,
+  Typography,
+} from "@wso2/oxygen-ui";
 import { FileSpreadsheet, Upload, X } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
-import { useFieldDefs, useMemberStatuses } from "../../api/useEvents";
+import { type EventMeta, useEventNames, useFieldDefs, useMemberStatuses } from "../../api/useEvents";
 import type { FieldDef } from "../eventsTypes";
 import { checkLeadFile, LeadFileError, MAX_FILE_BYTES, readLeadFile, type RawSheet } from "../lib/leadFile";
+import { campaignIdFrom } from "../rules/validate";
 import { EventsLoading, Panel } from "./EventsUi";
 import LeadMapping from "./LeadMapping";
-import { fieldHint, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
+import { fieldHint, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
 
-// Lead import: a raw event lead file in, a workbook with one member status's columns out.
+// Lead import: a raw event lead file in, a submission with the mapped rows out.
 //
-// Two decisions up front, in the order they matter: which member status the leads are
-// (it decides the columns), then the file. The file is read here, in the browser;
-// nothing is uploaded. The mapping screen then shows which column went where, and the
-// person downloads the workbook, edits it if needed, and uploads it to My Submissions.
+// Three things up front: the event details (name, date, campaign URL), which member
+// status the leads are (it decides the columns), and the file. The file is read in the
+// browser — nothing is uploaded at this stage. The mapping screen then shows which
+// vendor column went where; the primary action creates the submission directly.
 //
 // Leaving the page drops the work. Mapping a file again takes seconds.
 
@@ -39,22 +50,30 @@ const COLUMNS_SHOWN = 8;
 
 const STEPS = [
   {
-    title: "Map the columns",
-    body: "Pick the lead type and the raw file. Matching headings are mapped, and Claude suggests the rest.",
+    title: "Set up",
+    body: "Name the event, pick the lead type, and choose the raw file.",
   },
-  { title: "Download and edit", body: "Check the mapping, download the workbook, and make any changes to the data." },
-  { title: "Submit", body: "Upload the workbook in My Submissions, which checks every row before review." },
+  {
+    title: "Map the columns",
+    body: "Check how vendor columns line up with template columns. Claude suggests the rest.",
+  },
+  { title: "Submit", body: "Create the submission directly — no download or re-upload needed." },
 ];
 
 interface Opened {
   fileName: string;
   sheets: RawSheet[];
   status: string;
+  meta: EventMeta;
 }
 
 export default function LeadImport() {
   const statuses = useMemberStatuses();
   const fields = useFieldDefs();
+  const [eventName, setEventName] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [campaignUrl, setCampaignUrl] = useState("");
+  const names = useEventNames(eventName);
   const [status, setStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -70,6 +89,7 @@ export default function LeadImport() {
         sheets={opened.sheets}
         status={opened.status}
         defs={fields.data[opened.status] ?? []}
+        meta={opened.meta}
         onStartOver={() => {
           setOpened(null);
           setFile(null);
@@ -101,11 +121,20 @@ export default function LeadImport() {
   }
 
   async function open() {
-    if (!file || !status) return;
+    if (!file || !status || !eventName.trim()) return;
     setError(null);
     setReading(true);
     try {
-      setOpened({ fileName: file.name, sheets: await readLeadFile(file), status });
+      setOpened({
+        fileName: file.name,
+        sheets: await readLeadFile(file),
+        status,
+        meta: {
+          event_name: eventName.trim(),
+          event_date: eventDate || null,
+          sf_campaign_url: campaignUrl.trim() || null,
+        },
+      });
     } catch (e) {
       setError(e instanceof LeadFileError ? e.message : `The file could not be read. ${describeError(e)}`);
     } finally {
@@ -138,8 +167,60 @@ export default function LeadImport() {
           </Alert>
         )}
 
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
+          <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
+            <Typography sx={fieldLabel}>1 · Event name</Typography>
+            <Autocomplete
+              freeSolo
+              options={names.data ?? []}
+              inputValue={eventName}
+              onInputChange={(_, v) => setEventName(v)}
+              disabled={reading}
+              renderInput={(p) => (
+                <TextField
+                  {...p}
+                  size="small"
+                  sx={fieldInput}
+                  placeholder="e.g. Exito BFSI Summit Philippines"
+                />
+              )}
+            />
+          </Box>
+          <Box>
+            <Typography sx={fieldLabel}>Event date</Typography>
+            <TextField
+              type="date"
+              size="small"
+              fullWidth
+              sx={fieldInput}
+              disabled={reading}
+              value={eventDate}
+              onChange={(e) => setEventDate(e.target.value)}
+            />
+          </Box>
+          <Box>
+            <Typography sx={fieldLabel}>Salesforce campaign URL</Typography>
+            <TextField
+              size="small"
+              fullWidth
+              sx={fieldInput}
+              placeholder="https://wso2.lightning.force.com/…"
+              disabled={reading}
+              value={campaignUrl}
+              onChange={(e) => setCampaignUrl(e.target.value)}
+            />
+            <Typography sx={fieldHint}>
+              {!campaignUrl.trim()
+                ? "Optional — needed before the list is imported."
+                : campaignIdFrom(campaignUrl)
+                  ? `Campaign ID ${campaignIdFrom(campaignUrl)} — added to every row.`
+                  : "No campaign ID found in that link."}
+            </Typography>
+          </Box>
+        </Box>
+
         <Box>
-          <Typography sx={fieldLabel}>1 · Which leads are these?</Typography>
+          <Typography sx={fieldLabel}>2 · Which leads are these?</Typography>
           <Select
             size="small"
             displayEmpty
@@ -166,7 +247,7 @@ export default function LeadImport() {
         </Box>
 
         <Box>
-          <Typography sx={fieldLabel}>2 · The raw lead file</Typography>
+          <Typography sx={fieldLabel}>3 · The raw lead file</Typography>
           <Box
             role="button"
             tabIndex={0}
@@ -261,7 +342,7 @@ export default function LeadImport() {
           <Button
             variant="contained"
             sx={primaryBtn}
-            disabled={!file || !status || reading}
+            disabled={!file || !status || !eventName.trim() || reading}
             onClick={() => void open()}
             startIcon={reading ? <CircularProgress size={15} color="inherit" /> : undefined}
           >

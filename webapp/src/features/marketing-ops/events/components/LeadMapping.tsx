@@ -33,6 +33,7 @@ import {
 } from "@wso2/oxygen-ui";
 import { ArrowRight, Download, RefreshCw, RotateCcw } from "@wso2/oxygen-ui-icons-react";
 import { leadImportError, useSuggestLeadMapping } from "../../api/useLeadImport";
+import { type EventMeta, useCreateSubmission, useSaveSubmission } from "../../api/useEvents";
 import type { FieldDef } from "../eventsTypes";
 import type { ClaudeStep, MappingEntry } from "../leadImportTypes";
 import { saveBlob } from "../lib/download";
@@ -40,6 +41,7 @@ import { defaultSheet, headerRowOf, MAX_HEADING_CHARS, sourceColumns, type RawSh
 import {
   applyMapping,
   attentionOf,
+  buildPayload,
   buildWorkbook,
   choose,
   decodeChoice,
@@ -82,6 +84,7 @@ export default function LeadMapping({
   sheets,
   status,
   defs,
+  meta,
   onStartOver,
 }: {
   fileName: string;
@@ -90,11 +93,15 @@ export default function LeadMapping({
   status: string;
   /** The columns of `status`, in template order (Settings → Events). */
   defs: FieldDef[];
+  /** Event details collected on the setup screen. */
+  meta: EventMeta;
   /** Back to the upload screen. */
   onStartOver: () => void;
 }) {
   const navigate = useNavigate();
   const { mutateAsync } = useSuggestLeadMapping();
+  const createSubmission = useCreateSubmission();
+  const saveSubmission = useSaveSubmission();
   const [sheetIndex, setSheetIndex] = useState(() => defaultSheet(sheets));
   const rows = sheets[sheetIndex].rows;
   const [headerRow, setHeaderRow] = useState(() => headerRowOf(rows));
@@ -106,6 +113,9 @@ export default function LeadMapping({
   const [exportError, setExportError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
   /** The mapping on screen, for a download that finishes after the person changed it. */
   const current = useRef<MappingEntry[] | null>(null);
   useEffect(() => {
@@ -179,6 +189,26 @@ export default function LeadMapping({
     }
   }
 
+  async function submit() {
+    if (!output || output.rows.length === 0) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const { id } = await createSubmission.mutateAsync(meta);
+      await saveSubmission.mutateAsync({
+        id,
+        payload: buildPayload(defs, output, status),
+        rowCount: output.rows.length,
+        sourceFilename: fileName,
+      });
+      setSubmittedId(id);
+    } catch (e) {
+      setSubmitError(leadImportError(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   const loading = mapping === null;
   const byField = new Map((mapping ?? []).map((entry) => [entry.field_name, entry]));
   const targets = defs.filter((d) => !d.computed);
@@ -213,13 +243,25 @@ export default function LeadMapping({
         <Tooltip title={noRows ? "No row has a value in a mapped column yet." : ""} arrow>
           <span>
             <Button
-              variant="contained"
-              sx={primaryBtn}
+              sx={quietBtn}
               disabled={loading || noRows || saving}
               onClick={() => void download()}
               startIcon={saving ? <CircularProgress size={15} color="inherit" /> : <Download size={16} />}
             >
-              Download workbook
+              {saving ? "Saving…" : "Download workbook"}
+            </Button>
+          </span>
+        </Tooltip>
+        <Tooltip title={noRows ? "No row has a value in a mapped column yet." : ""} arrow>
+          <span>
+            <Button
+              variant="contained"
+              sx={primaryBtn}
+              disabled={loading || noRows || submitting || Boolean(submittedId)}
+              onClick={() => void submit()}
+              startIcon={submitting ? <CircularProgress size={15} color="inherit" /> : undefined}
+            >
+              {submitting ? "Creating submission…" : submittedId ? "Submitted" : "Create submission"}
             </Button>
           </span>
         </Tooltip>
@@ -236,6 +278,35 @@ export default function LeadMapping({
           }
         >
           {exportError}
+        </Alert>
+      )}
+
+      {submitError && (
+        <Alert
+          severity="error"
+          sx={{ fontSize: 13 }}
+          action={
+            <Button size="small" startIcon={<RefreshCw size={14} />} onClick={() => void submit()}>
+              Try again
+            </Button>
+          }
+        >
+          {submitError}
+        </Alert>
+      )}
+
+      {submittedId && (
+        <Alert
+          severity="success"
+          sx={{ fontSize: 13 }}
+          action={
+            <Button size="small" endIcon={<ArrowRight size={14} />} onClick={() => navigate(MY_SUBMISSIONS)}>
+              Go to My Submissions
+            </Button>
+          }
+        >
+          Submission created for <b>{meta.event_name}</b> — {output?.rows.length.toLocaleString()} rows saved. Open it
+          in My Submissions to review and submit.
         </Alert>
       )}
 

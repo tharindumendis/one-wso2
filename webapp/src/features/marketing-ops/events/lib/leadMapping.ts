@@ -27,6 +27,7 @@
 
 import type { FieldDef } from "../eventsTypes";
 import type { MappingEntry, SourceColumn, Split } from "../leadImportTypes";
+import type { Payload } from "../rules/model";
 import { columnLetter } from "./leadFile";
 import { slug } from "../rules/schema";
 
@@ -214,6 +215,18 @@ export function decodeChoice(value: string): { source: number; split: Split | nu
 /** "C · Badge", or "C · (no heading)". */
 export function sourceLabel(source: SourceColumn): string {
   return `${columnLetter(source.index)} · ${source.heading || "(no heading)"}`;
+}
+
+/** Convert the applyMapping() result into the submission payload the backend expects.
+ *  Computed columns are included as empty strings — the backend fills them. */
+export function buildPayload(defs: FieldDef[], output: Output, status: string): Payload {
+  return {
+    tabs: {
+      [status]: output.rows.map((row) =>
+        Object.fromEntries(defs.map((def, i) => [def.field_name, row[i] ?? ""])),
+      ),
+    },
+  };
 }
 
 /** "<source file name> - <Status>.xlsx", without characters a file name can't carry. */
