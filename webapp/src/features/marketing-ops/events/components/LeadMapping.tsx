@@ -102,7 +102,7 @@ export default function LeadMapping({
   const { mutateAsync } = useSuggestLeadMapping();
   const createSubmission = useCreateSubmission();
   const saveSubmission = useSaveSubmission();
-  const [sheetIndex, setSheetIndex] = useState(() => defaultSheet(sheets));
+  const [sheetIndex, setSheetIndex] = useState(() => defaultSheet(sheets, status));
   const rows = sheets[sheetIndex].rows;
   const [headerRow, setHeaderRow] = useState(() => headerRowOf(rows));
   const [mapping, setMapping] = useState<MappingEntry[] | null>(null);
