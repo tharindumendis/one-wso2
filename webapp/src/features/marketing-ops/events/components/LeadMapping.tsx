@@ -194,7 +194,9 @@ export default function LeadMapping({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const { id } = await createSubmission.mutateAsync(meta);
+      const created = await createSubmission.mutateAsync(meta);
+      if (!created?.id) throw new Error("The server did not return the new submission.");
+      const id = created.id;
       await saveSubmission.mutateAsync({
         id,
         payload: buildPayload(defs, output, status),

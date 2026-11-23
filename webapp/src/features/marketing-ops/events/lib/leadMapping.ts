@@ -29,7 +29,7 @@ import type { FieldDef } from "../eventsTypes";
 import type { MappingEntry, SourceColumn, Split } from "../leadImportTypes";
 import type { Payload } from "../rules/model";
 import { columnLetter } from "./leadFile";
-import { slug } from "../rules/schema";
+import { keyOf, slug } from "../rules/schema";
 
 /** The first-name and last-name columns of a status, when it has both. Only they can
  *  take a full-name split. Keyed as rules/schema.ts SPECIAL keys them. */
@@ -217,13 +217,16 @@ export function sourceLabel(source: SourceColumn): string {
   return `${columnLetter(source.index)} · ${source.heading || "(no heading)"}`;
 }
 
-/** Convert the applyMapping() result into the submission payload the backend expects.
- *  Computed columns are included as empty strings — the backend fills them. */
+/** Convert the applyMapping() result into the submission payload. Each value is stored
+ *  under `keyOf(def)` (the slugged name, e.g. "first_name") — the key My Submissions and
+ *  the workbook upload use. Computed columns are left out; MOP derives them. */
 export function buildPayload(defs: FieldDef[], output: Output, status: string): Payload {
   return {
     tabs: {
       [status]: output.rows.map((row) =>
-        Object.fromEntries(defs.map((def, i) => [def.field_name, row[i] ?? ""])),
+        Object.fromEntries(
+          defs.flatMap((def, i) => (def.computed ? [] : [[keyOf(def), row[i] ?? ""]])),
+        ),
       ),
     },
   };
