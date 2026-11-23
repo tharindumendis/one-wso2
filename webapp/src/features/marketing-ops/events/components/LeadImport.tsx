@@ -31,8 +31,7 @@ import { describeError } from "@api/errors";
 import { type EventMeta, useEventNames, useFieldDefs, useMemberStatuses } from "../../api/useEvents";
 import type { FieldDef } from "../eventsTypes";
 import { checkLeadFile, LeadFileError, MAX_FILE_BYTES, readLeadFile, type RawSheet } from "../lib/leadFile";
-import { campaignIdFrom } from "../rules/validate";
-import { EventsLoading, Panel } from "./EventsUi";
+import { CampaignUrlField, EventsLoading, Panel } from "./EventsUi";
 import LeadMapping from "./LeadMapping";
 import { fieldHint, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
 
@@ -200,22 +199,7 @@ export default function LeadImport() {
           </Box>
           <Box>
             <Typography sx={fieldLabel}>Salesforce campaign URL</Typography>
-            <TextField
-              size="small"
-              fullWidth
-              sx={fieldInput}
-              placeholder="https://wso2.lightning.force.com/…"
-              disabled={reading}
-              value={campaignUrl}
-              onChange={(e) => setCampaignUrl(e.target.value)}
-            />
-            <Typography sx={fieldHint}>
-              {!campaignUrl.trim()
-                ? "Optional — needed before the list is imported."
-                : campaignIdFrom(campaignUrl)
-                  ? `Campaign ID ${campaignIdFrom(campaignUrl)} — added to every row.`
-                  : "No campaign ID found in that link."}
-            </Typography>
+            <CampaignUrlField value={campaignUrl} onChange={setCampaignUrl} disabled={reading} />
           </Box>
         </Box>
 

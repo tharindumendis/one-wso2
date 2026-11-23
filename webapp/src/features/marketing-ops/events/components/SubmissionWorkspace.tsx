@@ -55,6 +55,7 @@ import {
   useSubmissionComments,
   useSubmitSubmission,
   useSuggest,
+  useUpdateSubmissionMeta,
   useWithdrawSubmission,
 } from "../../api/useEvents";
 import type { Comment, Problem, SubmissionFull, SubmitResult, Tab } from "../eventsTypes";
@@ -69,6 +70,7 @@ import {
   fillField,
   fromPayload,
   reject,
+  rederive,
   removeRows,
   toPayload,
   totalRows,
@@ -84,7 +86,17 @@ import IssueBar from "./IssueBar";
 import { issuesByField } from "../lib/issueGroups";
 import { ChangeListButton } from "./ChangeList";
 import FillDialog, { type FillTarget } from "./FillDialog";
-import { ConfirmDialog, EventsLoading, Panel, StatusChip, TabRail, WorkspaceHead } from "./EventsUi";
+import {
+  CampaignUrlField,
+  ConfirmDialog,
+  EventsLoading,
+  Panel,
+  StatusChip,
+  TabRail,
+  WorkspaceHead,
+} from "./EventsUi";
+import { campaignIdFrom } from "../rules/validate";
+import { campaignUrlHint } from "../lib/campaignUrl";
 import { EVENTS_LOADING, LEAVE_MS, primaryBtn, quietBtn, tint, useToneColors } from "./eventsStyles";
 
 // One submission, from the RMM's side.
@@ -174,6 +186,7 @@ function Workspace({
   const suggestMutation = useSuggest();
   const submitMutation = useSubmitSubmission();
   const escalateMutation = useEscalateSubmission();
+  const updateMeta = useUpdateSubmissionMeta();
   const withdrawMutation = useWithdrawSubmission();
 
   // Seeded once from props. `status` is tracked locally too, because submitting and
@@ -213,6 +226,10 @@ function Workspace({
   /** Where the list went after a successful submit, for the banner that says so. */
   const [outcome, setOutcome] = useState<"approved" | "escalated" | null>(null);
   const [escalateOpen, setEscalateOpen] = useState(false);
+  /** The campaign URL as last saved. Local because fixing it here must reach the grid's
+   *  Campaign ID column and any re-upload without waiting on a refetch. */
+  const [campaignUrl, setCampaignUrl] = useState(submission.sf_campaign_url ?? "");
+  const [editingCampaign, setEditingCampaign] = useState(false);
   const [uploadNote, setUploadNote] = useState<ParsedWorkbook | null>(null);
   const [dragging, setDragging] = useState(false);
   // Bumped on each chip click so clicking the same field twice still scrolls.
@@ -547,7 +564,7 @@ function Workspace({
 
       const built = fromPayload(
         { tabs: rowsByTab },
-        { name: submission.event_name, date: submission.event_date ?? "", campaignUrl: submission.sf_campaign_url },
+        { name: submission.event_name, date: submission.event_date ?? "", campaignUrl },
         ref,
         config,
       );
@@ -693,6 +710,22 @@ function Workspace({
     setConfirming(null);
   }
 
+  /** Save a corrected campaign URL and re-stamp every row's Campaign ID from it. Not an
+   *  undoable grid edit — it changes the submission, not a cell. */
+  async function saveCampaignUrl(url: string) {
+    await updateMeta.mutateAsync({
+      id,
+      body: { event_name: submission.event_name, event_date: submission.event_date ?? null, sf_campaign_url: url || null },
+    });
+    setCampaignUrl(url);
+    setProblems(null);
+    if (model) {
+      const next = rederive(model, { name: submission.event_name, date: submission.event_date ?? "", campaignUrl: url }, ref, config);
+      setModel(next);
+      scheduleSave(next);
+    }
+  }
+
   /** Skip machine review: the list goes to an admin's queue with the note saying why. */
   async function escalate(note: string) {
     if (!model) return;
@@ -801,6 +834,37 @@ function Workspace({
           </Button>
         )}
       </WorkspaceHead>
+
+      {/* The campaign, checked the moment the list opens rather than at Submit: machine
+          review refuses a list without a campaign ID, and this is where it is fixed. */}
+      {editable &&
+        (campaignIdFrom(campaignUrl) ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+            <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+              Salesforce campaign{" "}
+              <Box component="span" sx={{ fontFamily: "monospace", color: "text.primary" }}>
+                {campaignIdFrom(campaignUrl)}
+              </Box>
+            </Typography>
+            <Button onClick={() => setEditingCampaign(true)} sx={{ ...quietBtn, fontSize: 11.5, minWidth: 0 }}>
+              Change
+            </Button>
+          </Box>
+        ) : (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2, fontSize: 13 }}
+            action={
+              <Button size="small" onClick={() => setEditingCampaign(true)}>
+                {campaignUrl.trim() ? "Fix URL" : "Add URL"}
+              </Button>
+            }
+          >
+            {campaignUrl.trim()
+              ? "The Salesforce campaign URL doesn’t contain a campaign ID. Machine review won’t pass until it does."
+              : "No Salesforce campaign URL yet. Machine review needs one to know where these leads go."}
+          </Alert>
+        ))}
 
       {status === "ChangesRequested" && comments.length > 0 && (
         <Box
@@ -1149,6 +1213,17 @@ function Workspace({
         onClose={() => setFilling(null)}
         onApply={onFill}
       />
+
+      {editingCampaign && (
+        <CampaignDialog
+          initial={campaignUrl}
+          onCancel={() => setEditingCampaign(false)}
+          onSave={async (url) => {
+            await saveCampaignUrl(url);
+            setEditingCampaign(false);
+          }}
+        />
+      )}
 
       {escalateOpen && (
         <EscalateDialog
@@ -1657,6 +1732,59 @@ function ReportDialog({
         </Tooltip>
         <Button variant="contained" onClick={onClose} sx={primaryBtn}>
           Back to the list
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Change the submission's Salesforce campaign URL. Mounted only while open, so it
+ *  starts from the saved value every time. Saving a URL with no campaign ID is refused —
+ *  that is exactly what machine review would refuse later. */
+function CampaignDialog({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: string;
+  onCancel: () => void;
+  onSave: (url: string) => Promise<void>;
+}) {
+  const [url, setUrl] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const invalid = campaignUrlHint(url).error;
+  return (
+    <Dialog open onClose={() => !busy && onCancel()} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontSize: 16, fontWeight: 800 }}>Salesforce campaign</DialogTitle>
+      <DialogContent>
+        <CampaignUrlField value={url} onChange={setUrl} disabled={busy} autoFocus />
+        {error && (
+          <Alert severity="error" sx={{ mt: 1.5, fontSize: 13 }}>
+            {error}
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onCancel} disabled={busy} sx={quietBtn}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          sx={primaryBtn}
+          disabled={busy || invalid || url.trim() === initial.trim()}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onSave(url.trim());
+            } catch (e) {
+              setError(describeError(e));
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : "Save"}
         </Button>
       </DialogActions>
     </Dialog>

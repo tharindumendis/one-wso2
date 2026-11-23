@@ -44,8 +44,8 @@ import {
   useSubmissions,
 } from "../../api/useEvents";
 import type { SubmissionSummary } from "../eventsTypes";
-import { campaignIdFrom } from "../rules/validate";
 import {
+  CampaignUrlField,
   Empty,
   EventsLoading,
   ActionRow,
@@ -53,7 +53,7 @@ import {
   StatusChip,
   Timestamp,
 } from "./EventsUi";
-import { EVENTS_LOADING, fieldHint, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
+import { EVENTS_LOADING, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
 
 // "My submissions" — an RMM's own event lists.
 //
@@ -284,23 +284,9 @@ export default function MySubmissions({ onOpen }: { onOpen: (id: string) => void
 
             <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
               <Typography sx={fieldLabel}>Salesforce campaign URL</Typography>
-              <TextField
-                size="small"
-                fullWidth
-                sx={fieldInput}
-                placeholder="https://wso2.lightning.force.com/lightning/r/Campaign/…"
-                value={campaignUrl}
-                onChange={(e) => setCampaignUrl(e.target.value)}
-              />
               {/* Echo what was read out of the URL, so a wrong link (an Account, a report)
-                  is caught here rather than on 300 rows of the export. */}
-              <Typography sx={fieldHint}>
-                {!campaignUrl.trim()
-                  ? "Optional now — the marketing team needs it before import."
-                  : campaignIdFrom(campaignUrl)
-                    ? `Campaign ID ${campaignIdFrom(campaignUrl)} — added to every row.`
-                    : "No campaign ID found in that link. Copy it from the campaign’s own page."}
-              </Typography>
+                  is caught here rather than at Submit. */}
+              <CampaignUrlField value={campaignUrl} onChange={setCampaignUrl} />
             </Box>
           </Box>
 
