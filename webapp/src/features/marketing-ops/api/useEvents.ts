@@ -43,6 +43,7 @@ import type {
   Comment,
   FieldDef,
   FieldDefs,
+  GeographyStatus,
   MemberStatus,
   MemberStatusInput,
   NotificationSettings,
@@ -67,6 +68,7 @@ const KEY = {
   statuses: (incl: boolean) => ["marketing-ops", "events", "statuses", incl] as const,
   fields: ["marketing-ops", "events", "fields"] as const,
   reference: ["marketing-ops", "events", "reference"] as const,
+  geography: ["marketing-ops", "events", "geography"] as const,
   queue: ["marketing-ops", "events", "review", "queue"] as const,
   reviewSubmission: (id: string) => ["marketing-ops", "events", "review", id] as const,
   reviewComments: (id: string) => ["marketing-ops", "events", "review", "comments", id] as const,
@@ -120,6 +122,37 @@ export function useEventsReference() {
     // Countries and states essentially never change within a session.
     staleTime: 30 * 60 * 1000,
     retry: httpRetry,
+  });
+}
+
+// How fresh the country and state lists are, for Settings → Events. Asked on every visit
+// (the app default is not to refetch on mount): the answer changes on its own once a day.
+export function useGeographyStatus() {
+  const { getAccessToken, ready } = useBase();
+  return useQuery<GeographyStatus>({
+    queryKey: KEY.geography,
+    enabled: ready,
+    queryFn: async () => authedGet<GeographyStatus>(urls.eventsGeography, await getAccessToken()),
+    refetchOnMount: true,
+    retry: httpRetry,
+  });
+}
+
+// Sync now: replace the lists with Salesforce's, whatever their age. On success the
+// browser's own copy of the lists is dropped too, so this session validates against
+// the new ones straight away.
+export function useSyncGeography() {
+  const { getAccessToken } = useBase();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      authedPost<GeographyStatus>(urls.eventsGeographySync, await getAccessToken(), {}),
+    onSuccess: (data) => {
+      qc.setQueryData(KEY.geography, data);
+      return qc.invalidateQueries({ queryKey: KEY.reference });
+    },
+    // A failure is recorded server-side; show it in the status too.
+    onError: () => qc.invalidateQueries({ queryKey: KEY.geography }),
   });
 }
 

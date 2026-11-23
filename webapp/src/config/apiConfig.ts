@@ -1123,6 +1123,9 @@ export const marketingOpsServiceUrls = {
   eventsEventNames: (q: string) =>
     `${marketingOpsBackendUrl}/api/events/event-names?q=${encodeURIComponent(q)}`,
   eventsReference: `${marketingOpsBackendUrl}/api/events/reference`,
+  // Countries and states, a copy of Salesforce's: freshness (open) and Sync now (admin).
+  eventsGeography: `${marketingOpsBackendUrl}/api/events/geography`,
+  eventsGeographySync: `${marketingOpsBackendUrl}/api/events/geography/sync`,
   eventsFields: `${marketingOpsBackendUrl}/api/events/fields`,
   eventsFieldsForTab: (tab: string) =>
     `${marketingOpsBackendUrl}/api/events/fields/${encodeURIComponent(tab)}`,

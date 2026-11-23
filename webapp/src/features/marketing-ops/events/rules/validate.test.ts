@@ -76,3 +76,20 @@ describe("duplicates", () => {
     expect(out).toEqual([[], [], ["Same email as row 1."], ["Same email as row 1."]]);
   });
 });
+
+describe("states", () => {
+  // Any country Salesforce keeps a state list for is checked, not only the three where a
+  // state is required — the lists come from Salesforce, which refuses anything else.
+  const withState: EventsConfig = {
+    ...config,
+    fields: { Booth: [def("Email"), def("Country"), def("State")] },
+  };
+  const italy: Reference = { countries: ["Italy"], states: { Italy: ["Milan", "Rome"] }, stateRequired: [], assisted: false };
+  const check = (state: string) =>
+    validateRows([{ email: "a@x.io", country: "Italy", state }], "Booth", italy, withState)[0].map((i) => i.message);
+
+  it("accepts a state on the list and refuses one that isn't", () => {
+    expect(check("Milan")).toEqual([]);
+    expect(check("Lombardy")).toEqual(["“Lombardy” isn’t one of Salesforce’s states for Italy."]);
+  });
+});

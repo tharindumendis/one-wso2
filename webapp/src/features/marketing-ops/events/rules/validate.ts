@@ -281,7 +281,7 @@ export function validateRow(row: Row, tab: Tab, ref: Reference, config: EventsCo
         // are exactly what the model is for; leave the suggestion empty.
         issue({ field: SPECIAL.state, code: 'unknown_state', bucket: 'fixable', value: state,
                 options: allowed, context: `country is ${canonicalCountry}`,
-                message: `“${state}” isn’t a state we recognise for ${canonicalCountry}.` })
+                message: `“${state}” isn’t one of Salesforce’s states for ${canonicalCountry}.` })
       } else if (canonicalState !== state) {
         issue({ field: SPECIAL.state, code: 'unknown_state', bucket: 'fixable', value: state,
                 suggestion: canonicalState, source: 'reference', options: allowed,

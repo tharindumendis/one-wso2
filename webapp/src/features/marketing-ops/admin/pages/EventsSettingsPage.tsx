@@ -38,6 +38,7 @@ import {
   useUpdateStatus,
 } from "../../api/useEvents";
 import type { FieldDef } from "../../events/eventsTypes";
+import GeographySync from "../../events/components/GeographySync";
 import NewStatusDialog from "../../events/components/NewStatusDialog";
 import StatusEditor from "../../events/components/StatusEditor";
 import { primaryBtn, quietBtn } from "../../events/components/eventsStyles";
@@ -235,6 +236,8 @@ export default function EventsSettingsPage() {
               setWanted(created?.name ?? name);
             }}
           />
+
+          <GeographySync />
         </Box>
       )}
     </MarketingOpsShell>

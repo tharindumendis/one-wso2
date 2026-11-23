@@ -151,6 +151,23 @@ export interface CampaignCheck {
   campaign?: CampaignInfo | null;
 }
 
+/** How fresh the country and state lists are — a copy of Salesforce's, refreshed when
+ *  over a day old or by an admin's Sync now. */
+export interface GeographyStatus {
+  /** Last successful sync; null while the lists are still the template's seed. */
+  synced_at: string | null;
+  /** The admin who pressed Sync now; null for the daily refresh. */
+  synced_by: string | null;
+  attempted_at: string | null;
+  /** Why the last attempt failed; cleared by the next success. */
+  error: string | null;
+  country_count: number;
+  state_count: number;
+  countries_with_states: { country: string; states: number }[];
+  stale: boolean;
+  refresh_hours: number;
+}
+
 /** One step of automatic review. */
 export interface ReviewCheck {
   key: "rows" | "duplicates" | "campaign";
