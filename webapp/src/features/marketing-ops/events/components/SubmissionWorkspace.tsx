@@ -1238,7 +1238,7 @@ function Workspace({
       {outcome && (
         <Alert severity="success" sx={{ mt: 2, fontSize: 13 }} onClose={() => setOutcome(null)}>
           {outcome === "approved"
-            ? "Passed automatic review and approved. The marketing team has been told; nothing more is needed from you."
+            ? "Review complete — approved."
             : "Sent to an admin with your note. They'll approve it or send it back — you can withdraw it until they do."}
         </Alert>
       )}
