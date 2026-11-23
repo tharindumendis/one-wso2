@@ -105,6 +105,8 @@ export interface SubmissionSummary {
   template_version?: string | null;
   submitted_at?: string | null;
   reviewed_at?: string | null;
+  /** "machine" when machine review approved it, otherwise the reviewer's email. */
+  reviewed_by?: string | null;
   imported_at?: string | null;
   updated_at?: string | null;
 }
@@ -120,19 +122,24 @@ export interface Comment {
   created_at?: string | null;
 }
 
-// A problem the server refused to accept at submit. A non-empty list means the browser
-// and the server DISAGREE — in practice a stale tab running older rules. Worth
-// surfacing loudly rather than retrying, because retrying won't help.
+// A problem the server refused to accept at submit. Either machine review's own checks
+// (the campaign URL, duplicate emails), which an admin may overrule, or an invariant the
+// browser should already have caught — in practice a stale tab. `tab` and `row` are
+// null for a problem with the submission rather than a row.
 export interface Problem {
-  tab: string;
-  row: number;
+  tab: string | null;
+  row: number | null;
   field?: string;
   message: string;
 }
 
 export interface SubmitResult {
   submitted: boolean;
+  /** Where the list went: approved by machine review, or to an admin's queue. */
+  outcome?: "approved" | "escalated" | null;
   problems: Problem[];
+  /** True when every problem is one an admin may overrule — offer "Send to admin". */
+  can_escalate?: boolean;
 }
 
 export interface SuggestResult {

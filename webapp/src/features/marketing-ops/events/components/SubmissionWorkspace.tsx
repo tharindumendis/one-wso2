@@ -25,6 +25,7 @@ import {
   DialogTitle,
   Drawer,
   IconButton,
+  TextField,
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
@@ -45,6 +46,7 @@ import {
 } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
 import {
+  useEscalateSubmission,
   useEventsReference,
   useFieldDefs,
   useMemberStatuses,
@@ -55,7 +57,7 @@ import {
   useSuggest,
   useWithdrawSubmission,
 } from "../../api/useEvents";
-import type { Comment, Problem, SubmissionFull, Tab } from "../eventsTypes";
+import type { Comment, Problem, SubmissionFull, SubmitResult, Tab } from "../eventsTypes";
 import { toReference, type Reference } from "../rules/reference";
 import { WorkbookError, parseWorkbook, type ParsedWorkbook } from "../rules/workbook";
 import {
@@ -171,6 +173,7 @@ function Workspace({
   const save = useSaveSubmission();
   const suggestMutation = useSuggest();
   const submitMutation = useSubmitSubmission();
+  const escalateMutation = useEscalateSubmission();
   const withdrawMutation = useWithdrawSubmission();
 
   // Seeded once from props. `status` is tracked locally too, because submitting and
@@ -205,6 +208,11 @@ function Workspace({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [problems, setProblems] = useState<Problem[] | null>(null);
+  /** Whether every problem machine review raised is one an admin may overrule. */
+  const [canEscalate, setCanEscalate] = useState(false);
+  /** Where the list went after a successful submit, for the banner that says so. */
+  const [outcome, setOutcome] = useState<"approved" | "escalated" | null>(null);
+  const [escalateOpen, setEscalateOpen] = useState(false);
   const [uploadNote, setUploadNote] = useState<ParsedWorkbook | null>(null);
   const [dragging, setDragging] = useState(false);
   // Bumped on each chip click so clicking the same field twice still scrolls.
@@ -654,22 +662,48 @@ function Workspace({
     setConfirming("submit");
   }
 
+  /** Flush whatever is pending — the server reviews what it has STORED. */
+  async function flush() {
+    if (!model) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    await save.mutateAsync({ id, payload: toPayload(model), rowCount: totalRows(model) });
+  }
+
+  function landed(res: SubmitResult | null | undefined) {
+    // A 200 is not success here: `submitted: false` with problems means machine review
+    // refused it — its own checks, or an invariant a stale tab missed.
+    if (res?.submitted) {
+      setStatus(res.outcome === "approved" ? "Approved" : "Submitted");
+      setOutcome(res.outcome ?? null);
+      setProblems(null);
+    } else {
+      setProblems(res?.problems ?? []);
+      setCanEscalate(Boolean(res?.can_escalate));
+    }
+  }
+
   async function submit() {
     if (!model) return;
-    // Flush whatever is pending — the server validates what it has STORED.
-    if (saveTimer.current) clearTimeout(saveTimer.current);
     try {
-      await save.mutateAsync({ id, payload: toPayload(model), rowCount: totalRows(model) });
-      const res = await submitMutation.mutateAsync(id);
-      // A 200 is not success here: `submitted: false` with problems means the server's
-      // invariants disagree with the browser's rules.
-      if (res?.submitted) setStatus("Submitted");
-      else setProblems(res?.problems ?? []);
-      setConfirming(null);
+      await flush();
+      landed(await submitMutation.mutateAsync(id));
     } catch (e) {
       setError(describeError(e));
-      setConfirming(null);
     }
+    setConfirming(null);
+  }
+
+  /** Skip machine review: the list goes to an admin's queue with the note saying why. */
+  async function escalate(note: string) {
+    if (!model) return;
+    setError(null);
+    try {
+      await flush();
+      landed(await escalateMutation.mutateAsync({ id, note }));
+    } catch (e) {
+      setError(describeError(e));
+    }
+    setEscalateOpen(false);
   }
 
   /** Back to Draft, editable again. The reviewer may have acted in the meantime, which the
@@ -691,6 +725,7 @@ function Workspace({
    *  closer to what someone means by "my fixes" than any diff of the data would be. */
   const fixCount = past.length;
   const submitting = submitMutation.isPending || save.isPending;
+  const escalating = escalateMutation.isPending || save.isPending;
   const busy = withdrawMutation.isPending;
 
   return (
@@ -1030,9 +1065,27 @@ function Workspace({
           setActive(tab);
           setJumpTo((j) => ({ field, nonce: (j?.nonce ?? 0) + 1 }));
         }}
+        onEscalate={() => {
+          setReport(null);
+          setEscalateOpen(true);
+        }}
       />
 
-      {problems && <ProblemList problems={problems} onDismiss={() => setProblems(null)} />}
+      {problems && (
+        <ProblemList
+          problems={problems}
+          canEscalate={canEscalate}
+          onEscalate={() => setEscalateOpen(true)}
+          onDismiss={() => setProblems(null)}
+        />
+      )}
+      {outcome && (
+        <Alert severity="success" sx={{ mt: 2, fontSize: 13 }} onClose={() => setOutcome(null)}>
+          {outcome === "approved"
+            ? "Passed machine review and approved. The marketing team has been told; nothing more is needed from you."
+            : "Sent to an admin with your note. They'll approve it or send it back — you can withdraw it until they do."}
+        </Alert>
+      )}
       {error && (
         <Alert severity="error" sx={{ mt: 2, fontSize: 13 }}>
           {error}
@@ -1067,16 +1120,16 @@ function Workspace({
 
       <ConfirmDialog
         open={confirming === "submit"}
-        title="Send this to marketing?"
-        confirmLabel={submitting ? "Sending…" : "Submit"}
+        title="Submit for machine review?"
+        confirmLabel={submitting ? "Reviewing…" : "Submit"}
         busy={submitting}
         body={
           <>
             <b>{model ? totalRows(model) : 0}</b> rows across{" "}
             {model ? Object.keys(model.tabs).length : 0} interaction{" "}
-            {model && Object.keys(model.tabs).length === 1 ? "type" : "types"} go to the marketing
-            team. The list becomes read-only for you — if something needs changing after this, they
-            have to send it back.
+            {model && Object.keys(model.tabs).length === 1 ? "type" : "types"} are checked now. If
+            they pass, the list is approved straight away and becomes read-only. If not, you'll see
+            what to fix — or you can send it to an admin instead.
           </>
         }
         onCancel={() => setConfirming(null)}
@@ -1096,6 +1149,15 @@ function Workspace({
         onClose={() => setFilling(null)}
         onApply={onFill}
       />
+
+      {escalateOpen && (
+        <EscalateDialog
+          open
+          busy={escalating}
+          onCancel={() => setEscalateOpen(false)}
+          onSend={(note) => void escalate(note)}
+        />
+      )}
 
       <ConfirmDialog
         open={confirming === "withdraw"}
@@ -1440,9 +1502,20 @@ const EXPANDED = {
 
 const LINE = { display: "flex", alignItems: "center", gap: 0.75, mt: 0.4 };
 
-/** The server refused the submission. In practice this means a stale tab, so say so rather
- *  than implying the user did something wrong. */
-function ProblemList({ problems, onDismiss }: { problems: Problem[]; onDismiss: () => void }) {
+/** Machine review refused the submission. Two cases, worded differently: its own checks
+ *  (fix and resubmit, or send it to an admin), or an invariant the browser should have
+ *  caught — in practice a stale tab, so say so rather than implying the user erred. */
+function ProblemList({
+  problems,
+  canEscalate,
+  onEscalate,
+  onDismiss,
+}: {
+  problems: Problem[];
+  canEscalate: boolean;
+  onEscalate: () => void;
+  onDismiss: () => void;
+}) {
   return (
     <Box
       sx={{
@@ -1456,19 +1529,29 @@ function ProblemList({ problems, onDismiss }: { problems: Problem[]; onDismiss: 
     >
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 0.75 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: "error.main" }}>
-          The server wouldn't accept this yet
+          {canEscalate ? "Machine review didn't pass" : "The server wouldn't accept this yet"}
         </Typography>
-        <Button onClick={onDismiss} sx={{ ...quietBtn, ml: "auto", minWidth: 0, fontSize: 11.5 }}>
+        {canEscalate && (
+          <Button onClick={onEscalate} sx={{ ...quietBtn, ml: "auto", fontSize: 11.5 }}>
+            Send to admin
+          </Button>
+        )}
+        <Button
+          onClick={onDismiss}
+          sx={{ ...quietBtn, ml: canEscalate ? 0 : "auto", minWidth: 0, fontSize: 11.5 }}
+        >
           Dismiss
         </Button>
       </Box>
       <Typography sx={{ fontSize: 12, color: "text.secondary", mb: 1 }}>
-        This usually means the page has been open a while. Reload and try again — if it persists,
-        these are the rows it objected to.
+        {canEscalate
+          ? "Fix these and submit again. If you're sure the list is right as it is, send it to an admin with a note saying why."
+          : "This usually means the page has been open a while. Reload and try again — if it persists, these are the rows it objected to."}
       </Typography>
       {problems.slice(0, 10).map((p, i) => (
         <Typography key={i} sx={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>
-          {p.tab} · row {p.row} — {p.message}
+          {p.tab ? `${p.tab} · row ${p.row} — ` : ""}
+          {p.message}
         </Typography>
       ))}
     </Box>
@@ -1482,10 +1565,13 @@ function ReportDialog({
   report,
   onClose,
   onGoTo,
+  onEscalate,
 }: {
   report: Report | null;
   onClose: () => void;
   onGoTo: (tab: Tab, field: string) => void;
+  /** The way out when the rules are wrong about this list — an admin decides instead. */
+  onEscalate: () => void;
 }) {
   const tones = useToneColors();
   if (!report) return null;
@@ -1564,8 +1650,65 @@ function ReportDialog({
         ))}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Tooltip arrow title="When you're sure the list is right and the checks are wrong about it">
+          <Button onClick={onEscalate} sx={{ ...quietBtn, mr: "auto" }}>
+            Send to admin instead
+          </Button>
+        </Tooltip>
         <Button variant="contained" onClick={onClose} sx={primaryBtn}>
           Back to the list
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Skip machine review and ask an admin. The note is required: the admin is being asked
+ *  to overrule a check, and needs to know which one and why. */
+function EscalateDialog({
+  open,
+  busy,
+  onCancel,
+  onSend,
+}: {
+  open: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onSend: (note: string) => void;
+}) {
+  // Mounted only while open (see the caller), so every opening starts with an empty note.
+  const [note, setNote] = useState("");
+  return (
+    <Dialog open={open} onClose={() => !busy && onCancel()} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: 16, fontWeight: 800 }}>Send to an admin?</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ fontSize: 13, color: "text.secondary", lineHeight: 1.55, mb: 1.5 }}>
+          The list skips machine review and goes to the marketing team's queue. They'll approve it
+          or send it back. Say what the checks got wrong, so they know what to look at.
+        </Typography>
+        <TextField
+          autoFocus
+          multiline
+          minRows={3}
+          fullWidth
+          size="small"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Gabon is right for these four rows — they're from the Libreville office."
+          inputProps={{ maxLength: 2000, "aria-label": "Note for the admin" }}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onCancel} disabled={busy} sx={quietBtn}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          sx={primaryBtn}
+          disabled={busy || !note.trim()}
+          onClick={() => onSend(note.trim())}
+        >
+          {busy ? "Sending…" : "Send to admin"}
         </Button>
       </DialogActions>
     </Dialog>

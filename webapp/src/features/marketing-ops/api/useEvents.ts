@@ -287,6 +287,18 @@ export function useSubmitSubmission() {
   });
 }
 
+// Send the list to an admin instead of machine review, with a note saying why — for the
+// cases the rules get wrong. Lands in the review queue as Submitted.
+export function useEscalateSubmission() {
+  const { getAccessToken } = useBase();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: string; note: string }) =>
+      authedPost<SubmitResult>(urls.eventsSubmissionEscalate(id), await getAccessToken(), { note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["marketing-ops", "events"] }),
+  });
+}
+
 // Take a list back out of the queue while it's still awaiting review — Submitted back to
 // Draft. Nothing is destroyed; it just becomes editable again.
 export function useWithdrawSubmission() {

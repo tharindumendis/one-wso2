@@ -1110,6 +1110,8 @@ export const marketingOpsServiceUrls = {
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/suggest`,
   eventsSubmissionSubmit: (id: string) =>
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/submit`,
+  eventsSubmissionEscalate: (id: string) =>
+    `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/escalate`,
   eventsSubmissionWithdraw: (id: string) =>
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/withdraw`,
   eventsSubmissionComments: (id: string) =>
