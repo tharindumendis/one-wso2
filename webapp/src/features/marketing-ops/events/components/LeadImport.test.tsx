@@ -47,9 +47,14 @@ const fields: Record<string, FieldDef[]> = {
     def("score", "Add to Score (Hasina will fill this)", { computed: true }),
   ],
 };
+const createSubmission = vi.fn();
+const saveSubmission = vi.fn();
 vi.mock("../../api/useEvents", () => ({
   useMemberStatuses: () => ({ data: statuses, isError: false }),
   useFieldDefs: () => ({ data: fields, isError: false }),
+  useEventNames: () => ({ data: [] }),
+  useCreateSubmission: () => ({ mutateAsync: createSubmission }),
+  useSaveSubmission: () => ({ mutateAsync: saveSubmission }),
 }));
 
 const saveBlob = vi.fn();
@@ -86,6 +91,7 @@ async function openFile() {
   expect(screen.queryByRole("option", { name: "Retired" })).toBeNull();
   fireEvent.click(screen.getByRole("option", { name: "Booth" }));
   expect(screen.getByText(/4 columns, 2 required: First Name, Last Name, Email, Company\./)).toBeTruthy();
+  fireEvent.change(screen.getByPlaceholderText(/Exito BFSI Summit/), { target: { value: "Apidays Paris" } });
   chooseFile(view.container, "Apidays.xlsx");
   fireEvent.click(screen.getByRole("button", { name: "Map columns" }));
   await screen.findByRole("table", { name: "Column mapping" });
@@ -107,6 +113,8 @@ describe("Lead import", () => {
   beforeEach(() => {
     suggest.mockReset();
     saveBlob.mockReset();
+    createSubmission.mockReset().mockResolvedValue({ id: "sub-1" });
+    saveSubmission.mockReset().mockResolvedValue({});
     sheetRows = SHEET;
     suggest.mockResolvedValue({
       claude: "used",
@@ -206,6 +214,28 @@ describe("Lead import", () => {
     fireEvent.click(screen.getByRole("button", { name: "Download workbook" }));
     await screen.findByText(/Open it, make any changes to the data/);
     expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), "Apidays - Booth.xlsx");
+    expect(screen.getByRole("button", { name: "Go to My Submissions" })).toBeTruthy();
+  });
+
+  it("create submission saves the rows under the grid's keys and links to My Submissions", async () => {
+    await openFile();
+    await waitFor(() => expect(stat("Columns mapped")).toBe("3 of 4"));
+    fireEvent.click(screen.getByRole("button", { name: "Create submission" }));
+    await screen.findByText(/Submission created for/);
+    expect(createSubmission).toHaveBeenCalledWith(expect.objectContaining({ event_name: "Apidays Paris" }));
+    expect(saveSubmission).toHaveBeenCalledWith({
+      id: "sub-1",
+      payload: {
+        tabs: {
+          Booth: [
+            { first_name: "Ana", last_name: "Silva", email: "ana@acme.io", company: "" },
+            { first_name: "Ludwig", last_name: "van Beethoven", email: "lvb@x.de", company: "" },
+          ],
+        },
+      },
+      rowCount: 2,
+      sourceFilename: "Apidays.xlsx",
+    });
     expect(screen.getByRole("button", { name: "Go to My Submissions" })).toBeTruthy();
   });
 

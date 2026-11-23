@@ -144,6 +144,11 @@ export function useSubmissions() {
     queryFn: async () =>
       authedGet<SubmissionSummary[]>(urls.eventsSubmissions, await getAccessToken()),
     staleTime: 30 * 1000,
+    // The app default is refetchOnMount: false. Lead Import creates submissions on
+    // another page and invalidates this list, but an unmounted query is only marked
+    // stale — without this, My Submissions kept showing the list from its last visit.
+    // Refetches only when stale (invalidated or older than staleTime).
+    refetchOnMount: true,
     retry: httpRetry,
   });
 }
