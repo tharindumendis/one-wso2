@@ -424,6 +424,25 @@ export function ReviewDetail({ id, onBack }: { id: string; onBack: () => void })
             Not provided — ask the submitter before importing.
           </Typography>
         )}
+        <Typography
+          sx={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "text.disabled",
+            ml: { sm: 2 },
+          }}
+        >
+          SDR owner
+        </Typography>
+        {sub.sdr_owner_email ? (
+          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{sub.sdr_owner_email}</Typography>
+        ) : (
+          <Typography sx={{ fontSize: 13, color: "warning.main", fontWeight: 600 }}>
+            Not provided
+          </Typography>
+        )}
       </Panel>
 
       {/* Export is review-only BY DESIGN: submitters must never obtain the Pardot file. */}

@@ -30,8 +30,9 @@ import { FileSpreadsheet, Upload, X } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
 import { type EventMeta, useEventNames, useFieldDefs, useMemberStatuses } from "../../api/useEvents";
 import type { FieldDef } from "../eventsTypes";
+import { normaliseSdr } from "../lib/sdrOwner";
 import { checkLeadFile, LeadFileError, MAX_FILE_BYTES, readLeadFile, type RawSheet } from "../lib/leadFile";
-import { CampaignUrlField, EventsLoading, Panel } from "./EventsUi";
+import { CampaignUrlField, EventsLoading, Panel, SdrOwnerField } from "./EventsUi";
 import LeadMapping from "./LeadMapping";
 import { fieldHint, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
 
@@ -72,6 +73,7 @@ export default function LeadImport() {
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [campaignUrl, setCampaignUrl] = useState("");
+  const [sdrOwner, setSdrOwner] = useState("");
   const names = useEventNames(eventName);
   const [status, setStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -132,6 +134,7 @@ export default function LeadImport() {
           event_name: eventName.trim(),
           event_date: eventDate || null,
           sf_campaign_url: campaignUrl.trim() || null,
+          sdr_owner_email: normaliseSdr(sdrOwner) || null,
         },
       });
     } catch (e) {
@@ -200,6 +203,10 @@ export default function LeadImport() {
           <Box>
             <Typography sx={fieldLabel}>Salesforce campaign URL</Typography>
             <CampaignUrlField value={campaignUrl} onChange={setCampaignUrl} disabled={reading} />
+          </Box>
+          <Box>
+            <Typography sx={fieldLabel}>SDR owner</Typography>
+            <SdrOwnerField value={sdrOwner} onChange={setSdrOwner} disabled={reading} />
           </Box>
         </Box>
 

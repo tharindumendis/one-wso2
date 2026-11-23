@@ -232,6 +232,8 @@ export interface EventMeta {
   event_name: string;
   event_date: string | null;
   sf_campaign_url: string | null;
+  /** Left out, the server keeps the one it has. */
+  sdr_owner_email?: string | null;
 }
 
 export function useCreateSubmission() {

@@ -91,6 +91,7 @@ import { ChangeListButton } from "./ChangeList";
 import FillDialog, { type FillTarget } from "./FillDialog";
 import {
   CampaignUrlField,
+  SdrOwnerField,
   ConfirmDialog,
   EventsLoading,
   Panel,
@@ -100,6 +101,7 @@ import {
 } from "./EventsUi";
 import { campaignIdFrom } from "../rules/validate";
 import { campaignUrlHint } from "../lib/campaignUrl";
+import { normaliseSdr, sdrOwnerProblem } from "../lib/sdrOwner";
 import { EVENTS_LOADING, LEAVE_MS, primaryBtn, quietBtn, tint, useToneColors } from "./eventsStyles";
 
 // One submission, from the RMM's side.
@@ -238,6 +240,10 @@ function Workspace({
    *  Campaign ID column and any re-upload without waiting on a refetch. */
   const [campaignUrl, setCampaignUrl] = useState(submission.sf_campaign_url ?? "");
   const [editingCampaign, setEditingCampaign] = useState(false);
+  /** The SDR owner as last saved — local for the same reason as the campaign URL. */
+  const [sdrOwner, setSdrOwner] = useState(submission.sdr_owner_email ?? "");
+  const [editingSdr, setEditingSdr] = useState(false);
+  const sdrProblem = sdrOwnerProblem(sdrOwner);
   const campaignId = campaignIdFrom(campaignUrl);
   const campaignCheck = useCampaignCheck(campaignId);
   const [uploadNote, setUploadNote] = useState<ParsedWorkbook | null>(null);
@@ -805,6 +811,22 @@ function Workspace({
     }
   }
 
+  /** Save the SDR owner. It belongs to the submission, not to any row. */
+  async function saveSdrOwner(email: string) {
+    const value = normaliseSdr(email);
+    await updateMeta.mutateAsync({
+      id,
+      body: {
+        event_name: submission.event_name,
+        event_date: submission.event_date ?? null,
+        sf_campaign_url: campaignUrl.trim() || null,
+        sdr_owner_email: value || null,
+      },
+    });
+    setSdrOwner(value);
+    setProblems(null);
+  }
+
   /** Skip automatic review: the list goes to an admin's queue with the note saying why. */
   async function escalate(note: string) {
     if (!model) return;
@@ -954,6 +976,36 @@ function Workspace({
               : campaignUrl.trim()
                 ? "The Salesforce campaign URL doesn’t contain a campaign ID. Automatic review won’t pass until it does."
                 : "No Salesforce campaign URL yet. Automatic review needs one to know where these leads go."}
+          </Alert>
+        ))}
+
+      {/* The SDR owner: required, so it is asked for here as soon as the list opens. */}
+      {editable &&
+        (!sdrProblem ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, mt: -0.75 }}>
+            <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+              SDR owner{" "}
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 600 }}>
+                {sdrOwner}
+              </Box>
+            </Typography>
+            <Button onClick={() => setEditingSdr(true)} sx={{ ...quietBtn, fontSize: 11.5, minWidth: 0 }}>
+              Change
+            </Button>
+          </Box>
+        ) : (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2, fontSize: 13 }}
+            action={
+              <Button size="small" onClick={() => setEditingSdr(true)}>
+                {sdrOwner.trim() ? "Fix" : "Add SDR owner"}
+              </Button>
+            }
+          >
+            {sdrOwner.trim()
+              ? `${sdrProblem} Automatic review won’t pass until it is.`
+              : "No SDR owner yet. Automatic review needs the sales development rep who follows up these leads."}
           </Alert>
         ))}
 
@@ -1315,6 +1367,17 @@ function Workspace({
         />
       )}
 
+      {editingSdr && (
+        <SdrOwnerDialog
+          initial={sdrOwner}
+          onCancel={() => setEditingSdr(false)}
+          onSave={async (email) => {
+            await saveSdrOwner(email);
+            setEditingSdr(false);
+          }}
+        />
+      )}
+
       {escalateOpen && (
         <EscalateDialog
           open
@@ -1652,13 +1715,14 @@ const SECTION = {
   mb: 0.5,
 } as const;
 
-/** The Review steps, in the order they run. The last three are the server's checks and
+/** The Review steps, in the order they run. The last four are the server's checks and
  *  share its keys; their labels match the server's so nothing changes when results land. */
 const REVIEW_STEPS: Omit<ReviewStep, "state">[] = [
   { key: "grid", label: "Every cell matches the template" },
   { key: "save", label: "Your latest changes are saved" },
   { key: "rows", label: "Every row has a name, a valid email and confirmed opt-in" },
   { key: "duplicates", label: "No one is listed twice" },
+  { key: "sdr", label: "An SDR owner is set" },
   { key: "campaign", label: "The campaign exists in Salesforce" },
 ];
 
@@ -1915,6 +1979,58 @@ function CampaignDialog({
             setError(null);
             try {
               await onSave(url.trim());
+            } catch (e) {
+              setError(describeError(e));
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : "Save"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Set the SDR owner. Mounted only while open, so it starts from the saved value. Only a
+ *  WSO2 address can be saved — anything else automatic review would refuse. */
+function SdrOwnerDialog({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: string;
+  onCancel: () => void;
+  onSave: (email: string) => Promise<void>;
+}) {
+  const [email, setEmail] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unchanged = normaliseSdr(email) === normaliseSdr(initial);
+  return (
+    <Dialog open onClose={() => !busy && onCancel()} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontSize: 16, fontWeight: 800 }}>SDR owner</DialogTitle>
+      <DialogContent>
+        <SdrOwnerField value={email} onChange={setEmail} disabled={busy} autoFocus />
+        {error && (
+          <Alert severity="error" sx={{ mt: 1.5, fontSize: 13 }}>
+            {error}
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onCancel} disabled={busy} sx={quietBtn}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          sx={primaryBtn}
+          disabled={busy || !!sdrOwnerProblem(email) || unchanged}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onSave(email);
             } catch (e) {
               setError(describeError(e));
               setBusy(false);

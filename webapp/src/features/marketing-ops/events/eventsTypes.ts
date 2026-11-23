@@ -96,6 +96,8 @@ export interface SubmissionSummary {
   event_name: string;
   event_date?: string | null;
   sf_campaign_url?: string | null;
+  /** The SDR who follows up these leads; required to pass automatic review. */
+  sdr_owner_email?: string | null;
   /** Read out of sf_campaign_url by the server; null when the URL holds none. */
   campaign_id?: string | null;
   owner_email?: string | null;
@@ -170,7 +172,7 @@ export interface GeographyStatus {
 
 /** One step of automatic review. */
 export interface ReviewCheck {
-  key: "rows" | "duplicates" | "campaign";
+  key: "rows" | "duplicates" | "sdr" | "campaign";
   label: string;
   status: "passed" | "failed" | "skipped";
   problems: Problem[];
