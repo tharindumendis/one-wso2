@@ -308,7 +308,7 @@ export default function LeadMapping({
           }
         >
           Submission created for <b>{meta.event_name}</b> — {output?.rows.length.toLocaleString()} rows saved. Open it
-          in My Submissions to review and submit.
+          in My Submissions, fix anything flagged, then press Review.
         </Alert>
       )}
 
@@ -328,7 +328,7 @@ export default function LeadMapping({
       ) : (
         <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
           Values are copied exactly as they are in the file. Check the mapping below, then create the submission. You can
-          fix individual rows in My Submissions before sending it for review.
+          fix individual rows in My Submissions before you press Review.
         </Typography>
       )}
 
