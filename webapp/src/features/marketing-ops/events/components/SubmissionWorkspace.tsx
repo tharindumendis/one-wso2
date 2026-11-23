@@ -222,7 +222,7 @@ function Workspace({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [problems, setProblems] = useState<Problem[] | null>(null);
-  /** Whether every problem machine review raised is one an admin may overrule. */
+  /** Whether every problem automatic review raised is one an admin may overrule. */
   const [canEscalate, setCanEscalate] = useState(false);
   /** Where the list went after a successful submit, for the banner that says so. */
   const [outcome, setOutcome] = useState<"approved" | "escalated" | null>(null);
@@ -690,7 +690,7 @@ function Workspace({
   }
 
   function landed(res: SubmitResult | null | undefined) {
-    // A 200 is not success here: `submitted: false` with problems means machine review
+    // A 200 is not success here: `submitted: false` with problems means automatic review
     // refused it — its own checks, or an invariant a stale tab missed.
     if (res?.submitted) {
       setStatus(res.outcome === "approved" ? "Approved" : "Submitted");
@@ -729,7 +729,7 @@ function Workspace({
     }
   }
 
-  /** Skip machine review: the list goes to an admin's queue with the note saying why. */
+  /** Skip automatic review: the list goes to an admin's queue with the note saying why. */
   async function escalate(note: string) {
     if (!model) return;
     setError(null);
@@ -868,10 +868,10 @@ function Workspace({
             }
           >
             {campaignId
-              ? `Salesforce has no campaign with ID ${campaignId}. Machine review won’t pass until the URL points to a real campaign.`
+              ? `Salesforce has no campaign with ID ${campaignId}. Automatic review won’t pass until the URL points to a real campaign.`
               : campaignUrl.trim()
-                ? "The Salesforce campaign URL doesn’t contain a campaign ID. Machine review won’t pass until it does."
-                : "No Salesforce campaign URL yet. Machine review needs one to know where these leads go."}
+                ? "The Salesforce campaign URL doesn’t contain a campaign ID. Automatic review won’t pass until it does."
+                : "No Salesforce campaign URL yet. Automatic review needs one to know where these leads go."}
           </Alert>
         ))}
 
@@ -1155,7 +1155,7 @@ function Workspace({
       {outcome && (
         <Alert severity="success" sx={{ mt: 2, fontSize: 13 }} onClose={() => setOutcome(null)}>
           {outcome === "approved"
-            ? "Passed machine review and approved. The marketing team has been told; nothing more is needed from you."
+            ? "Passed automatic review and approved. The marketing team has been told; nothing more is needed from you."
             : "Sent to an admin with your note. They'll approve it or send it back — you can withdraw it until they do."}
         </Alert>
       )}
@@ -1193,7 +1193,7 @@ function Workspace({
 
       <ConfirmDialog
         open={confirming === "submit"}
-        title="Submit for machine review?"
+        title="Submit for automatic review?"
         confirmLabel={submitting ? "Reviewing…" : "Submit"}
         busy={submitting}
         body={
@@ -1586,7 +1586,7 @@ const EXPANDED = {
 
 const LINE = { display: "flex", alignItems: "center", gap: 0.75, mt: 0.4 };
 
-/** Machine review refused the submission. Two cases, worded differently: its own checks
+/** Automatic review refused the submission. Two cases, worded differently: its own checks
  *  (fix and resubmit, or send it to an admin), or an invariant the browser should have
  *  caught — in practice a stale tab, so say so rather than implying the user erred. */
 function ProblemList({
@@ -1613,7 +1613,7 @@ function ProblemList({
     >
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 0.75 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: "error.main" }}>
-          {canEscalate ? "Machine review didn't pass" : "The server wouldn't accept this yet"}
+          {canEscalate ? "Automatic review didn't pass" : "The server wouldn't accept this yet"}
         </Typography>
         {canEscalate && (
           <Button onClick={onEscalate} sx={{ ...quietBtn, ml: "auto", fontSize: 11.5 }}>
@@ -1749,7 +1749,7 @@ function ReportDialog({
 
 /** Change the submission's Salesforce campaign URL. Mounted only while open, so it
  *  starts from the saved value every time. Saving a URL with no campaign ID is refused —
- *  that is exactly what machine review would refuse later. */
+ *  that is exactly what automatic review would refuse later. */
 function CampaignDialog({
   initial,
   onCancel,
@@ -1763,7 +1763,7 @@ function CampaignDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Refused: a link with no campaign ID, or one Salesforce says doesn't exist. Allowed
-  // while unchecked or unreachable — machine review asks again at submit.
+  // while unchecked or unreachable — automatic review asks again at submit.
   const check = useCampaignCheck(campaignIdFrom(url));
   const invalid =
     campaignUrlHint(url, { checking: check.isFetching, check: check.data }).tone === "error" || check.isFetching;
@@ -1804,7 +1804,7 @@ function CampaignDialog({
   );
 }
 
-/** Skip machine review and ask an admin. The note is required: the admin is being asked
+/** Skip automatic review and ask an admin. The note is required: the admin is being asked
  *  to overrule a check, and needs to know which one and why. */
 function EscalateDialog({
   open,
@@ -1824,7 +1824,7 @@ function EscalateDialog({
       <DialogTitle sx={{ fontSize: 16, fontWeight: 800 }}>Send to an admin?</DialogTitle>
       <DialogContent>
         <Typography sx={{ fontSize: 13, color: "text.secondary", lineHeight: 1.55, mb: 1.5 }}>
-          The list skips machine review and goes to the marketing team's queue. They'll approve it
+          The list skips automatic review and goes to the marketing team's queue. They'll approve it
           or send it back. Say what the checks got wrong, so they know what to look at.
         </Typography>
         <TextField

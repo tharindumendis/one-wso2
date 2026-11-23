@@ -27,13 +27,13 @@ export interface CampaignLookup {
 export type HintTone = "plain" | "ok" | "error";
 
 /** What a campaign URL is worth, as the person types it: first its shape, then — once
- *  there is an ID — whether Salesforce has that campaign. Machine review refuses a list
+ *  there is an ID — whether Salesforce has that campaign. Automatic review refuses a list
  *  without a real campaign, so it is said on the field rather than at Submit. */
 export function campaignUrlHint(url: string, lookup?: CampaignLookup): { tone: HintTone; text: string } {
   if (!url.trim()) {
     return {
       tone: "plain",
-      text: "Needed before the list can pass machine review. Copy it from the campaign’s page in Salesforce.",
+      text: "Needed before the list can pass automatic review. Copy it from the campaign’s page in Salesforce.",
     };
   }
   const id = campaignIdFrom(url);

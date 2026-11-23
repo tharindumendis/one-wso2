@@ -137,7 +137,7 @@ export function useEventNames(q: string) {
 
 // Whether Salesforce has this campaign — feedback for the URL field as it is typed.
 // Keyed by the campaign ID, so it asks once per distinct ID however many keystrokes it
-// takes to get there. Machine review asks again at submit; this is not the check.
+// takes to get there. Automatic review asks again at submit; this is not the check.
 export function useCampaignCheck(campaignId: string) {
   const { getAccessToken, ready } = useBase();
   return useQuery<CampaignCheck>({
@@ -302,7 +302,7 @@ export function useSubmitSubmission() {
   });
 }
 
-// Send the list to an admin instead of machine review, with a note saying why — for the
+// Send the list to an admin instead of automatic review, with a note saying why — for the
 // cases the rules get wrong. Lands in the review queue as Submitted.
 export function useEscalateSubmission() {
   const { getAccessToken } = useBase();

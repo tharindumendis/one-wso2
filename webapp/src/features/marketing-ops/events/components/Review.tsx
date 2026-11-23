@@ -98,9 +98,9 @@ const FILTERS: { key: Status | null; label: string }[] = [
  *  sent back instead. */
 const FINISHED: Status[] = ["Approved", "Imported"];
 
-/** Who signed a list off: machine review, a person, or nobody yet. */
+/** Who signed a list off: automatic review, a person, or nobody yet. */
 function reviewerLabel(s: SubmissionSummary): string {
-  if (s.reviewed_by === "machine") return "Machine review";
+  if (s.reviewed_by === "machine") return "Automatic review";
   return s.reviewed_by || "—";
 }
 
