@@ -709,13 +709,12 @@ function Workspace({
     if (!outstanding.ok) {
       setReport(null);
       setPendingReport(outstanding);
-      mark("grid", {
-        state: "failed",
-        problems: outstanding.lines.map(
-          (l) => `${l.tab} · ${l.label} — ${l.message} (${l.rows.length} ${l.rows.length === 1 ? "row" : "rows"})`,
-        ),
-      });
-      finish({ phase: "failed", canEscalate: true, localReport: true });
+      const { lines, unusable } = describeIssues(model, config);
+      mark("grid", { state: "failed", problems: lines });
+      // An admin can't edit the list either, so what makes a row unusable — no name, no
+      // usable email, consent not confirmed — is not theirs to overrule. Offering "Send
+      // to admin" there only led to the server refusing it.
+      finish({ phase: "failed", canEscalate: !unusable, localReport: true });
       return;
     }
     mark("grid", { state: "passed" });
@@ -1662,6 +1661,36 @@ const REVIEW_STEPS: Omit<ReviewStep, "state">[] = [
   { key: "duplicates", label: "No one is listed twice" },
   { key: "campaign", label: "The campaign exists in Salesforce" },
 ];
+
+/** Fields whose problems make a row unusable — the server's invariants (invariants.check).
+ *  A duplicate is not among them: that one an admin may judge. */
+const UNUSABLE_FIELDS = new Set<string>([SPECIAL.firstName, SPECIAL.lastName, SPECIAL.email, SPECIAL.optInStatus]);
+
+/** The grid's problems, one line per distinct message, with the rows that have it.
+ *
+ *  Grouped by the message itself rather than by column: a column's report used to show
+ *  its FIRST row's message for every row ("hasn't confirmed opt-in (6 rows)" when five
+ *  of the six were misspellings). The message carries the value, so identical values
+ *  still group, and different ones are said separately. */
+function describeIssues(model: Model, config: EventsConfig): { lines: string[]; unusable: boolean } {
+  const lines: string[] = [];
+  let unusable = false;
+  for (const [tab, rows] of Object.entries(model.tabs)) {
+    const groups = new Map<string, number[]>();
+    rows.forEach((row, i) => {
+      for (const issue of row.issues) {
+        if (UNUSABLE_FIELDS.has(issue.field) && issue.code !== "duplicate") unusable = true;
+        const key = `${labelOf(config, tab, issue.field)} — ${issue.message}`;
+        groups.set(key, [...(groups.get(key) ?? []), i + 1]);
+      }
+    });
+    for (const [key, at] of groups) {
+      const shown = at.length > 8 ? `${at.slice(0, 8).join(", ")} and ${at.length - 8} more` : at.join(", ");
+      lines.push(`${tab} · ${key} (${at.length === 1 ? "row" : "rows"} ${shown})`);
+    }
+  }
+  return { lines, unusable };
+}
 
 /** Long enough to read a step before the next one starts. */
 const pause = () => new Promise((resolve) => setTimeout(resolve, 450));
