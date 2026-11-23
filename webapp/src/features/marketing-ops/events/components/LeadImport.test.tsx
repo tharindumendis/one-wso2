@@ -53,6 +53,7 @@ vi.mock("../../api/useEvents", () => ({
   useMemberStatuses: () => ({ data: statuses, isError: false }),
   useFieldDefs: () => ({ data: fields, isError: false }),
   useEventNames: () => ({ data: [] }),
+  useCampaignCheck: () => ({ data: undefined, isFetching: false }),
   useCreateSubmission: () => ({ mutateAsync: createSubmission }),
   useSaveSubmission: () => ({ mutateAsync: saveSubmission }),
 }));

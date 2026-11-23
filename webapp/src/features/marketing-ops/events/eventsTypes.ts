@@ -133,6 +133,24 @@ export interface Problem {
   message: string;
 }
 
+/** A Salesforce campaign, as the Sales Entity Service describes it. */
+export interface CampaignInfo {
+  id: string;
+  name?: string | null;
+  type?: string | null;
+  status?: string | null;
+  isActive: boolean;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+/** Whether Salesforce has a campaign. "unavailable" means it couldn't be asked — never
+ *  read it as "does not exist". */
+export interface CampaignCheck {
+  result: "found" | "not_found" | "unavailable";
+  campaign?: CampaignInfo | null;
+}
+
 export interface SubmitResult {
   submitted: boolean;
   /** Where the list went: approved by machine review, or to an admin's queue. */

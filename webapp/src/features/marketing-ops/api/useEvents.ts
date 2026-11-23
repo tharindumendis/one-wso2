@@ -39,6 +39,7 @@ import {
 } from "@config/apiConfig";
 import { downloadAuthed } from "../events/lib/download";
 import type {
+  CampaignCheck,
   Comment,
   FieldDef,
   FieldDefs,
@@ -131,6 +132,20 @@ export function useEventNames(q: string) {
     queryFn: async () => authedGet<string[]>(urls.eventsEventNames(q), await getAccessToken()),
     staleTime: 60 * 1000,
     retry: httpRetry,
+  });
+}
+
+// Whether Salesforce has this campaign — feedback for the URL field as it is typed.
+// Keyed by the campaign ID, so it asks once per distinct ID however many keystrokes it
+// takes to get there. Machine review asks again at submit; this is not the check.
+export function useCampaignCheck(campaignId: string) {
+  const { getAccessToken, ready } = useBase();
+  return useQuery<CampaignCheck>({
+    queryKey: ["marketing-ops", "events", "campaign", campaignId],
+    enabled: ready && Boolean(campaignId),
+    queryFn: async () => authedGet<CampaignCheck>(urls.eventsCampaign(campaignId), await getAccessToken()),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }
 

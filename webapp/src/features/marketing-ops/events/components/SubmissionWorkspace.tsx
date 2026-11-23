@@ -46,6 +46,7 @@ import {
 } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
 import {
+  useCampaignCheck,
   useEscalateSubmission,
   useEventsReference,
   useFieldDefs,
@@ -230,6 +231,8 @@ function Workspace({
    *  Campaign ID column and any re-upload without waiting on a refetch. */
   const [campaignUrl, setCampaignUrl] = useState(submission.sf_campaign_url ?? "");
   const [editingCampaign, setEditingCampaign] = useState(false);
+  const campaignId = campaignIdFrom(campaignUrl);
+  const campaignCheck = useCampaignCheck(campaignId);
   const [uploadNote, setUploadNote] = useState<ParsedWorkbook | null>(null);
   const [dragging, setDragging] = useState(false);
   // Bumped on each chip click so clicking the same field twice still scrolls.
@@ -838,13 +841,17 @@ function Workspace({
       {/* The campaign, checked the moment the list opens rather than at Submit: machine
           review refuses a list without a campaign ID, and this is where it is fixed. */}
       {editable &&
-        (campaignIdFrom(campaignUrl) ? (
+        (campaignId && campaignCheck.data?.result !== "not_found" ? (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
             <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
               Salesforce campaign{" "}
-              <Box component="span" sx={{ fontFamily: "monospace", color: "text.primary" }}>
-                {campaignIdFrom(campaignUrl)}
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 600 }}>
+                {campaignCheck.data?.campaign?.name ?? ""}
+              </Box>{" "}
+              <Box component="span" sx={{ fontFamily: "monospace" }}>
+                {campaignId}
               </Box>
+              {campaignCheck.data?.result === "unavailable" && " · couldn’t check Salesforce just now"}
             </Typography>
             <Button onClick={() => setEditingCampaign(true)} sx={{ ...quietBtn, fontSize: 11.5, minWidth: 0 }}>
               Change
@@ -860,9 +867,11 @@ function Workspace({
               </Button>
             }
           >
-            {campaignUrl.trim()
-              ? "The Salesforce campaign URL doesn’t contain a campaign ID. Machine review won’t pass until it does."
-              : "No Salesforce campaign URL yet. Machine review needs one to know where these leads go."}
+            {campaignId
+              ? `Salesforce has no campaign with ID ${campaignId}. Machine review won’t pass until the URL points to a real campaign.`
+              : campaignUrl.trim()
+                ? "The Salesforce campaign URL doesn’t contain a campaign ID. Machine review won’t pass until it does."
+                : "No Salesforce campaign URL yet. Machine review needs one to know where these leads go."}
           </Alert>
         ))}
 
@@ -1753,7 +1762,11 @@ function CampaignDialog({
   const [url, setUrl] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const invalid = campaignUrlHint(url).error;
+  // Refused: a link with no campaign ID, or one Salesforce says doesn't exist. Allowed
+  // while unchecked or unreachable — machine review asks again at submit.
+  const check = useCampaignCheck(campaignIdFrom(url));
+  const invalid =
+    campaignUrlHint(url, { checking: check.isFetching, check: check.data }).tone === "error" || check.isFetching;
   return (
     <Dialog open onClose={() => !busy && onCancel()} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontSize: 16, fontWeight: 800 }}>Salesforce campaign</DialogTitle>

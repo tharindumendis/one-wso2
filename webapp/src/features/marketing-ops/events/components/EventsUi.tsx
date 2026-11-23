@@ -30,7 +30,9 @@ import {
 } from "@wso2/oxygen-ui";
 import { ArrowLeft } from "@wso2/oxygen-ui-icons-react";
 import { STATUS_LABEL, type Status } from "../eventsTypes";
+import { useCampaignCheck } from "../../api/useEvents";
 import { campaignUrlHint } from "../lib/campaignUrl";
+import { campaignIdFrom } from "../rules/validate";
 import { fieldHint, fieldInput, primaryBtn, quietBtn, STATUS_STYLE } from "./eventsStyles";
 
 // Shared presentational pieces for the Events screens.
@@ -108,7 +110,9 @@ export function CampaignUrlField({
   disabled?: boolean;
   autoFocus?: boolean;
 }) {
-  const hint = campaignUrlHint(value);
+  const campaignId = campaignIdFrom(value);
+  const check = useCampaignCheck(campaignId);
+  const hint = campaignUrlHint(value, { checking: check.isFetching, check: check.data });
   return (
     <>
       <TextField
@@ -119,11 +123,16 @@ export function CampaignUrlField({
         disabled={disabled}
         autoFocus={autoFocus}
         value={value}
-        error={hint.error}
+        error={hint.tone === "error"}
         onChange={(e) => onChange(e.target.value)}
         inputProps={{ "aria-label": "Salesforce campaign URL" }}
       />
-      <Typography sx={{ ...fieldHint, ...(hint.error ? { color: "error.main" } : {}) }}>
+      <Typography
+        sx={{
+          ...fieldHint,
+          ...(hint.tone === "error" ? { color: "error.main" } : hint.tone === "ok" ? { color: "success.main" } : {}),
+        }}
+      >
         {hint.text}
       </Typography>
     </>
