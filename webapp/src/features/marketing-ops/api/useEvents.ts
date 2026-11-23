@@ -49,6 +49,7 @@ import type {
   NotificationSettingsOut,
   Payload,
   ReferenceResponse,
+  ReviewResult,
   SubmissionFull,
   SubmissionSummary,
   SubmitResult,
@@ -299,6 +300,16 @@ export function useSubmitSubmission() {
     mutationFn: async (id: string) =>
       authedPost<SubmitResult>(urls.eventsSubmissionSubmit(id), await getAccessToken(), {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["marketing-ops", "events"] }),
+  });
+}
+
+// Run automatic review without changing anything, check by check. Nothing to invalidate:
+// the list is exactly as it was.
+export function useRunAutomaticReview() {
+  const { getAccessToken } = useBase();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      authedPost<ReviewResult>(urls.eventsSubmissionReview(id), await getAccessToken(), {}),
   });
 }
 

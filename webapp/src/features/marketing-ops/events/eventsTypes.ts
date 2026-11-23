@@ -151,6 +151,23 @@ export interface CampaignCheck {
   campaign?: CampaignInfo | null;
 }
 
+/** One step of automatic review. */
+export interface ReviewCheck {
+  key: "rows" | "duplicates" | "campaign";
+  label: string;
+  status: "passed" | "failed" | "skipped";
+  problems: Problem[];
+}
+
+/** Automatic review run without changing anything — what the Review button shows. */
+export interface ReviewResult {
+  passed: boolean;
+  can_escalate: boolean;
+  checks: ReviewCheck[];
+  campaign?: CampaignInfo | null;
+  row_count: number;
+}
+
 export interface SubmitResult {
   submitted: boolean;
   /** Where the list went: approved by automatic review, or to an admin's queue. */

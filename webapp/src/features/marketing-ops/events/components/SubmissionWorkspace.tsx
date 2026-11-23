@@ -35,7 +35,7 @@ import {
   Minimize2,
   PaintBucket,
   Redo2,
-  Send,
+  ShieldCheck,
   Sparkles,
   Columns3,
   Table2,
@@ -55,11 +55,13 @@ import {
   useSubmission,
   useSubmissionComments,
   useSubmitSubmission,
+  useRunAutomaticReview,
   useSuggest,
   useUpdateSubmissionMeta,
   useWithdrawSubmission,
 } from "../../api/useEvents";
-import type { Comment, Problem, SubmissionFull, SubmitResult, Tab } from "../eventsTypes";
+import type { Comment, Problem, ReviewResult, SubmissionFull, SubmitResult, Tab } from "../eventsTypes";
+import ReviewDialog, { type ReviewState, type ReviewStep } from "./ReviewDialog";
 import { toReference, type Reference } from "../rules/reference";
 import { WorkbookError, parseWorkbook, type ParsedWorkbook } from "../rules/workbook";
 import {
@@ -187,6 +189,7 @@ function Workspace({
   const suggestMutation = useSuggest();
   const submitMutation = useSubmitSubmission();
   const escalateMutation = useEscalateSubmission();
+  const reviewMutation = useRunAutomaticReview();
   const updateMeta = useUpdateSubmissionMeta();
   const withdrawMutation = useWithdrawSubmission();
 
@@ -227,6 +230,10 @@ function Workspace({
   /** Where the list went after a successful submit, for the banner that says so. */
   const [outcome, setOutcome] = useState<"approved" | "escalated" | null>(null);
   const [escalateOpen, setEscalateOpen] = useState(false);
+  /** The Review panel while it is open. */
+  const [review, setReview] = useState<ReviewState | null>(null);
+  /** The grid's report from a failed review, for "Show me where". */
+  const [pendingReport, setPendingReport] = useState<Report | null>(null);
   /** The campaign URL as last saved. Local because fixing it here must reach the grid's
    *  Campaign ID column and any re-upload without waiting on a refetch. */
   const [campaignUrl, setCampaignUrl] = useState(submission.sf_campaign_url ?? "");
@@ -243,7 +250,7 @@ function Workspace({
   /** Undo/redo. Snapshots of the whole list — see `apply`. */
   const [past, setPast] = useState<Model[]>([]);
   const [future, setFuture] = useState<Model[]>([]);
-  const [confirming, setConfirming] = useState<"reupload" | "submit" | "withdraw" | null>(null);
+  const [confirming, setConfirming] = useState<"reupload" | "withdraw" | null>(null);
   const [deleting, setDeleting] = useState<{ rowId: string; label: string } | null>(null);
   /** Rows ticked for a bulk edit, and the open fill dialog. */
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -666,20 +673,88 @@ function Workspace({
     setDeleting(null);
   }, [model, deleting, active, ref, config, apply]);
 
-  /** Clicking Submit CHECKS first and only then asks. Confirming something about to be
-   *  refused anyway would be two dialogs to reach the same dead end. */
-  function askToSubmit() {
+  /** Review: every check runs as a visible step, and only a list that passes is offered
+   *  "Add to Salesforce". Never blocked, always EXPLAINED — a failed step names what it
+   *  found, under the step that found it.
+   *
+   *  The steps report real results; the pause between them only keeps each one on screen
+   *  long enough to read, since most finish in a few milliseconds. */
+  async function startReview() {
     if (!model) return;
     setError(null);
     setProblems(null);
-    // Never blocked, always EXPLAINED. A disabled button tells you nothing and leaves you
-    // hunting across five tabs; this says exactly what's left and where.
+    setOutcome(null);
+    setReview({
+      phase: "running",
+      canEscalate: false,
+      rowCount: totalRows(model),
+      localReport: false,
+      steps: REVIEW_STEPS.map((s) => ({ ...s, state: "waiting" as const })),
+    });
+    const mark = (key: string, patch: Partial<ReviewStep>) =>
+      setReview((r) => r && { ...r, steps: r.steps.map((s) => (s.key === key ? { ...s, ...patch } : s)) });
+    const finish = (patch: Partial<ReviewState>) =>
+      setReview((r) =>
+        r && {
+          ...r,
+          ...patch,
+          steps: r.steps.map((s) => (s.state === "waiting" || s.state === "running" ? { ...s, state: "skipped" } : s)),
+        },
+      );
+
+    // 1 · the grid's own rules, in the browser.
+    mark("grid", { state: "running" });
+    await pause();
     const outstanding = buildReport(model, config);
     if (!outstanding.ok) {
-      setReport(outstanding);
+      setReport(null);
+      setPendingReport(outstanding);
+      mark("grid", {
+        state: "failed",
+        problems: outstanding.lines.map(
+          (l) => `${l.tab} · ${l.label} — ${l.message} (${l.rows.length} ${l.rows.length === 1 ? "row" : "rows"})`,
+        ),
+      });
+      finish({ phase: "failed", canEscalate: true, localReport: true });
       return;
     }
-    setConfirming("submit");
+    mark("grid", { state: "passed" });
+
+    // 2 · what the server checks is what it has STORED.
+    mark("save", { state: "running" });
+    try {
+      await Promise.all([flush(), pause()]);
+    } catch (e) {
+      mark("save", { state: "failed", problems: [describeError(e)] });
+      finish({ phase: "failed" });
+      return;
+    }
+    mark("save", { state: "passed" });
+
+    // 3 · automatic review on the server, revealed one check at a time.
+    mark("rows", { state: "running" });
+    let result: ReviewResult | null | undefined;
+    try {
+      result = await reviewMutation.mutateAsync(id);
+    } catch (e) {
+      mark("rows", { state: "failed", problems: [describeError(e)] });
+      finish({ phase: "failed" });
+      return;
+    }
+    for (const check of result?.checks ?? []) {
+      mark(check.key, { state: "running" });
+      await pause();
+      mark(check.key, {
+        state: check.status,
+        problems: check.problems.map((p) => (p.tab ? `${p.tab} · row ${p.row} — ${p.message}` : p.message)),
+      });
+    }
+    finish({
+      phase: result?.passed ? "passed" : "failed",
+      canEscalate: Boolean(result?.can_escalate),
+      campaign: result?.campaign ?? null,
+      rowCount: result?.row_count ?? totalRows(model),
+    });
   }
 
   /** Flush whatever is pending — the server reviews what it has STORED. */
@@ -702,6 +777,8 @@ function Workspace({
     }
   }
 
+  /** "Add to Salesforce": the server runs the same checks again before it approves, so a
+   *  list changed since the review is never approved on stale results. */
   async function submit() {
     if (!model) return;
     try {
@@ -710,7 +787,7 @@ function Workspace({
     } catch (e) {
       setError(describeError(e));
     }
-    setConfirming(null);
+    setReview(null);
   }
 
   /** Save a corrected campaign URL and re-stamp every row's Campaign ID from it. Not an
@@ -823,8 +900,14 @@ function Workspace({
               Re-upload
             </Button>
             {/* The one filled button on the screen: what you came here to do. */}
-            <Button variant="contained" sx={primaryBtn} startIcon={<Send size={16} />} onClick={askToSubmit}>
-              Submit
+            <Button
+              variant="contained"
+              sx={primaryBtn}
+              startIcon={<ShieldCheck size={16} />}
+              disabled={Boolean(review)}
+              onClick={() => void startReview()}
+            >
+              Review
             </Button>
           </>
         )}
@@ -1191,23 +1274,22 @@ function Workspace({
         }}
       />
 
-      <ConfirmDialog
-        open={confirming === "submit"}
-        title="Submit for automatic review?"
-        confirmLabel={submitting ? "Reviewing…" : "Submit"}
-        busy={submitting}
-        body={
-          <>
-            <b>{model ? totalRows(model) : 0}</b> rows across{" "}
-            {model ? Object.keys(model.tabs).length : 0} interaction{" "}
-            {model && Object.keys(model.tabs).length === 1 ? "type" : "types"} are checked now. If
-            they pass, the list is approved straight away and becomes read-only. If not, you'll see
-            what to fix — or you can send it to an admin instead.
-          </>
-        }
-        onCancel={() => setConfirming(null)}
-        onConfirm={() => void submit()}
-      />
+      {review && (
+        <ReviewDialog
+          review={review}
+          submitting={submitting}
+          onClose={() => setReview(null)}
+          onAdd={() => void submit()}
+          onEscalate={() => {
+            setReview(null);
+            setEscalateOpen(true);
+          }}
+          onShowWhere={() => {
+            setReview(null);
+            setReport(pendingReport);
+          }}
+        />
+      )}
 
       <FillDialog
         // Keyed on the target so reopening for a different column starts fresh.
@@ -1570,6 +1652,19 @@ const SECTION = {
   textTransform: "uppercase",
   mb: 0.5,
 } as const;
+
+/** The Review steps, in the order they run. The last three are the server's checks and
+ *  share its keys; their labels match the server's so nothing changes when results land. */
+const REVIEW_STEPS: Omit<ReviewStep, "state">[] = [
+  { key: "grid", label: "Every cell matches the template" },
+  { key: "save", label: "Your latest changes are saved" },
+  { key: "rows", label: "Every row has a name, a valid email and confirmed opt-in" },
+  { key: "duplicates", label: "No one is listed twice" },
+  { key: "campaign", label: "The campaign exists in Salesforce" },
+];
+
+/** Long enough to read a step before the next one starts. */
+const pause = () => new Promise((resolve) => setTimeout(resolve, 450));
 
 /** The expanded view: rail, strip and grid over the whole window. Above the page and its
  *  side panels (drawers are 1200), below dialogs and popovers (1300+), which open from
