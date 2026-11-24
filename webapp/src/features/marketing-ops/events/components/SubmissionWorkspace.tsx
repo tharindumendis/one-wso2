@@ -57,6 +57,7 @@ import {
   useSubmitSubmission,
   useRunAutomaticReview,
   useSuggest,
+  useCheckTitles,
   useUpdateSubmissionMeta,
   useWithdrawSubmission,
 } from "../../api/useEvents";
@@ -67,6 +68,7 @@ import { WorkbookError, parseWorkbook, type ParsedWorkbook } from "../rules/work
 import {
   accept,
   applySuggestions,
+  applyTranslations,
   changesOf,
   countsFor,
   edit,
@@ -81,6 +83,7 @@ import {
   type Model,
 } from "../rules/model";
 import { buildRequest } from "../rules/suggest";
+import { distinctTitles } from "../rules/titles";
 import { buildReport, type Report } from "../rules/report";
 import { SPECIAL, labelOf, liveStatuses, picklistOf, type EventsConfig, type Field } from "../rules/schema";
 import { columnsFor } from "../rules/columns";
@@ -189,6 +192,7 @@ function Workspace({
   const tones = useToneColors();
   const save = useSaveSubmission();
   const suggestMutation = useSuggest();
+  const titlesMutation = useCheckTitles();
   const submitMutation = useSubmitSubmission();
   const escalateMutation = useEscalateSubmission();
   const reviewMutation = useRunAutomaticReview();
@@ -224,6 +228,7 @@ function Workspace({
 
   const [uploading, setUploading] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [checkingTitles, setCheckingTitles] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [problems, setProblems] = useState<Problem[] | null>(null);
@@ -443,6 +448,32 @@ function Workspace({
     [id, ref, config, assisted],
   );
 
+  /** Which job titles are not in English. Runs after a LOAD, like suggestions — only the
+   *  titles travel. Not gated on `assisted`: answers the server stored earlier still
+   *  apply when no model is configured, and automatic review reads the same answers. */
+  const askingTitles = useRef(false);
+  const askForTitles = useCallback(
+    async (current: Model) => {
+      const titles = distinctTitles(current.tabs);
+      if (!titles.length || askingTitles.current) return;
+      askingTitles.current = true;
+      setCheckingTitles(true);
+      try {
+        const res = await titlesMutation.mutateAsync({ id, titles });
+        if (res?.translations.length) {
+          setModel((m) => (m ? applyTranslations(m, res.translations, ref, config) : m));
+        }
+      } catch {
+        // A head start like suggestions: failing leaves the titles unchecked, never stuck.
+      } finally {
+        askingTitles.current = false;
+        setCheckingTitles(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id, ref, config],
+  );
+
   // Suggestions aren't stored — they're recomputed per session — so a submission being
   // reopened needs the same round an upload gets. Fired once on mount for an editable list.
   const askedOnMount = useRef(false);
@@ -450,6 +481,7 @@ function Workspace({
     if (askedOnMount.current || !editable || !model) return;
     askedOnMount.current = true;
     void askForSuggestions(model);
+    void askForTitles(model);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -594,6 +626,7 @@ function Workspace({
       if (first) setActive(first);
       scheduleSave(built, file.name);
       void askForSuggestions(built);
+      void askForTitles(built);
     } catch (e) {
       setError(e instanceof WorkbookError ? e.message : describeError(e));
     } finally {
@@ -881,7 +914,7 @@ function Workspace({
       >
         {ready && editable && (
           <>
-            <SaveHint state={saveState} thinking={thinking} />
+            <SaveHint state={saveState} thinking={thinking || checkingTitles} />
             {assisted && (
               <Tooltip
                 arrow
@@ -1058,7 +1091,7 @@ function Workspace({
                 <Typography sx={{ fontSize: 16, fontWeight: 700, flex: 1, minWidth: 0 }} noWrap>
                   {submission.event_name}
                 </Typography>
-                {ready && editable && <SaveHint state={saveState} thinking={thinking} />}
+                {ready && editable && <SaveHint state={saveState} thinking={thinking || checkingTitles} />}
                 <Button sx={quietBtn} startIcon={<Minimize2 size={16} />} onClick={() => setExpanded(false)}>
                   Exit full screen
                 </Button>
@@ -1715,7 +1748,7 @@ const SECTION = {
   mb: 0.5,
 } as const;
 
-/** The Review steps, in the order they run. The last four are the server's checks and
+/** The Review steps, in the order they run. The last five are the server's checks and
  *  share its keys; their labels match the server's so nothing changes when results land. */
 const REVIEW_STEPS: Omit<ReviewStep, "state">[] = [
   { key: "grid", label: "Every cell matches the template" },
@@ -1723,6 +1756,7 @@ const REVIEW_STEPS: Omit<ReviewStep, "state">[] = [
   { key: "rows", label: "Every row has a name, a valid email and confirmed opt-in" },
   { key: "duplicates", label: "No one is listed twice" },
   { key: "sdr", label: "An SDR owner is set" },
+  { key: "titles", label: "Job titles are in English" },
   { key: "campaign", label: "The campaign exists in Salesforce" },
 ];
 

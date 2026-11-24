@@ -19,6 +19,7 @@ import { Box, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Check, X } from "@wso2/oxygen-ui-icons-react";
 import { tint, useToneColors } from "./eventsStyles";
 import type { FieldIssues } from "../lib/issueGroups";
+import { TITLE_FIELD } from "../rules/titles";
 
 // Every field in this tab that has a problem, with accept/reject for the whole column.
 //
@@ -74,6 +75,12 @@ export default function IssueBar({
 
       {groups.map((g) => {
         const canFix = g.suggested.length > 0;
+        // On Job Title the suggestions are translations, and turning one down keeps the
+        // title as it is (see rules/titles.ts) — say so.
+        const n = g.suggested.length;
+        const titles = g.field === TITLE_FIELD;
+        const acceptLabel = titles ? `Use the English title on all ${n}` : `Accept all ${n} on ${g.label}`;
+        const rejectLabel = titles ? `Keep all ${n} as they are` : `Reject all ${n} on ${g.label}`;
         // Red only when a person is genuinely required. A field with suggestions waiting
         // is informational, not an alarm.
         const colour = g.blocked ? tones.blocking : tones.suggested;
@@ -145,11 +152,11 @@ export default function IssueBar({
             {editable && canFix && (
               <>
                 <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
-                <Tooltip title={`Accept all ${g.suggested.length} on ${g.label}`} arrow>
+                <Tooltip title={acceptLabel} arrow>
                   <Box
                     component="button"
                     type="button"
-                    aria-label={`Accept all ${g.suggested.length} on ${g.label}`}
+                    aria-label={acceptLabel}
                     onMouseDown={fire(() => onAccept(g.suggested))}
                     sx={{ ...action, color: tones.accepted }}
                   >
@@ -157,11 +164,11 @@ export default function IssueBar({
                   </Box>
                 </Tooltip>
                 <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
-                <Tooltip title={`Reject all ${g.suggested.length} on ${g.label}`} arrow>
+                <Tooltip title={rejectLabel} arrow>
                   <Box
                     component="button"
                     type="button"
-                    aria-label={`Reject all ${g.suggested.length} on ${g.label}`}
+                    aria-label={rejectLabel}
                     onMouseDown={fire(() => onReject(g.suggested))}
                     sx={{ ...action, color: "text.secondary" }}
                   >

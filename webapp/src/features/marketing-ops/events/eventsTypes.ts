@@ -172,7 +172,7 @@ export interface GeographyStatus {
 
 /** One step of automatic review. */
 export interface ReviewCheck {
-  key: "rows" | "duplicates" | "sdr" | "campaign";
+  key: "rows" | "duplicates" | "sdr" | "titles" | "campaign";
   label: string;
   status: "passed" | "failed" | "skipped";
   problems: Problem[];
@@ -199,6 +199,13 @@ export interface SubmitResult {
 export interface SuggestResult {
   assisted: boolean;
   suggestions: SuggestionAnswer[];
+}
+
+/** The job titles that are not in English (POST /submissions/{id}/titles). `key` is the
+ *  title's titleKey. */
+export interface TitleResult {
+  assisted: boolean;
+  translations: { key: string; english: string; language: string | null }[];
 }
 
 // Countries and states, plus whether suggestion assistance is configured at all.

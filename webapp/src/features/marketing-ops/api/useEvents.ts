@@ -56,6 +56,7 @@ import type {
   SubmitResult,
   SuggestItem,
   SuggestResult,
+  TitleResult,
 } from "../events/eventsTypes";
 
 // Submissions are PER-USER (owner-scoped server-side), so those keys carry the sub.
@@ -320,6 +321,19 @@ export function useSuggest() {
     mutationFn: async ({ id, items }: { id: string; items: SuggestItem[] }) =>
       authedPost<SuggestResult>(urls.eventsSubmissionSuggest(id), await getAccessToken(), {
         items,
+      }),
+  });
+}
+
+// Which job titles are not in English, with an English version for each. Only the
+// TITLES travel. Answers are stored server-side, so a list seen before costs no model
+// call. A mutation for the same reason as useSuggest: it fires after a load, not on render.
+export function useCheckTitles() {
+  const { getAccessToken } = useBase();
+  return useMutation({
+    mutationFn: async ({ id, titles }: { id: string; titles: string[] }) =>
+      authedPost<TitleResult>(urls.eventsSubmissionTitles(id), await getAccessToken(), {
+        titles,
       }),
   });
 }

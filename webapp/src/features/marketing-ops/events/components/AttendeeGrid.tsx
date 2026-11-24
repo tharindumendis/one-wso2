@@ -41,6 +41,7 @@ import { COMPUTED_FIELDS, defOf, labelOf, type EventsConfig, type Tab } from "..
 import { columnsFor } from "../rules/columns";
 import type { GridRow } from "../rules/model";
 import type { Issue } from "../rules/validate";
+import { NOT_ENGLISH } from "../rules/titles";
 import { LEAVE_MS, tint, useToneColors, type ToneColors } from "./eventsStyles";
 
 // The attendee grid — a plain table, deliberately.
@@ -1240,7 +1241,7 @@ function Diff({
           <Box sx={{ display: "flex", gap: 0.25, ml: "auto", pl: 0.5, flexShrink: 0 }}>
             <Box
               component="span"
-              title="Accept"
+              title={issue.code === NOT_ENGLISH ? "Use the English title" : "Accept"}
               onMouseDown={fire(() => onAccept(cell), busy)}
               sx={{
                 ...pill,
@@ -1253,7 +1254,7 @@ function Diff({
             </Box>
             <Box
               component="span"
-              title="Reject"
+              title={issue.code === NOT_ENGLISH ? "Keep it as it is" : "Reject"}
               onMouseDown={fire(() => onReject(cell), busy)}
               sx={{ ...pill, color: "text.secondary", borderColor: "divider" }}
             >

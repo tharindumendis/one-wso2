@@ -1108,6 +1108,8 @@ export const marketingOpsServiceUrls = {
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/payload`,
   eventsSubmissionSuggest: (id: string) =>
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/suggest`,
+  eventsSubmissionTitles: (id: string) =>
+    `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/titles`,
   eventsSubmissionSubmit: (id: string) =>
     `${marketingOpsBackendUrl}/api/events/submissions/${encodeURIComponent(id)}/submit`,
   eventsCampaign: (campaignId: string) =>

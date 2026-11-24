@@ -29,6 +29,7 @@
 import { COMPUTED_FIELDS, type EventsConfig, type Field, type Tab } from './schema'
 import type { Reference } from './reference'
 import { deriveAll, validateRows, type EventContext, type Issue, type Row } from './validate'
+import { NOT_ENGLISH, TITLE_FIELD, titleIssue, titleKey, type Translation } from './titles'
 
 export interface GridRow {
   /** Stable within the session, for React keys and cell addressing. Not persisted —
@@ -64,11 +65,21 @@ export interface Model {
    *  Rejecting is not fixing — the value stays as it was, so the cell stays flagged and
    *  keeps blocking submission. It simply stops being something we claim to know. */
   dismissed: Set<string>
+  /** Job titles that are not in English, by titleKey, as the server answered. Held like
+   *  `suggestions`: asked once per session, re-attached on every revalidation. */
+  translations: Record<string, Translation>
+  /** Titles the RMM chose to keep as they are, by titleKey. Unlike a dismissal this
+   *  SETTLES the cell — see titles.ts — and it is stored with the list (`kept_titles`),
+   *  where automatic review reads it. Per title rather than per cell: keeping
+   *  "Geschäftsführer" once keeps it on every row that says it. */
+  kept: Set<string>
 }
 
 export interface Payload {
   tabs: Record<string, Row[]>
   dismissed?: string[]
+  /** See Model.kept. */
+  kept_titles?: string[]
   /** Every cell that differs from what was imported, so the change list survives a save
    *  and is there for the reviewer too.
    *
@@ -114,7 +125,8 @@ const newId = () => `r${++nextId}`
 export function build(rowsByTab: Record<string, Row[]>, event: EventContext,
                       ref: Reference, config: EventsConfig, dismissed = new Set<string>(),
                       suggestions: Record<string, string> = {},
-                      changes: StoredChange[] = []): Model {
+                      changes: StoredChange[] = [], kept = new Set<string>()): Model {
+  const state: Findings = { dismissed, suggestions, translations: {}, kept }
   const tabs: Record<string, GridRow[]> = {}
 
   // Rebuild each row's "as imported" state by undoing the recorded changes. Storing the
@@ -135,9 +147,9 @@ export function build(rowsByTab: Record<string, Row[]>, event: EventContext,
       derived.map((data, i) => ({
         id: newId(), data, issues: [],
         original: { ...data, ...(undo.get(`${tab}|${i}`) ?? {}) },
-      })), tab, ref, config, dismissed, suggestions)
+      })), tab, ref, config, state)
   }
-  return { tabs, dismissed, suggestions }
+  return { tabs, ...state }
 }
 
 /** Every cell that differs from what was imported, in tab and row order.
@@ -182,13 +194,14 @@ function nameOf(data: Row): string {
  *  Dismissed cells keep the finding but lose the suggestion, which drops them into
  *  "only you can answer" — the honest consequence of "no, I'll handle this myself".
  */
+type Findings = Pick<Model, 'dismissed' | 'suggestions' | 'translations' | 'kept'>
+
 function withIssues(rows: GridRow[], tab: Tab, ref: Reference, config: EventsConfig,
-                    dismissed: Set<string>,
-                    suggestions: Record<string, string>): GridRow[] {
+                    { dismissed, suggestions, translations, kept }: Findings): GridRow[] {
   const perRow = validateRows(rows.map(r => r.data), tab, ref, config)
   return rows.map((row, i) => ({
     ...row,
-    issues: perRow[i].map(issue => {
+    issues: withTitle(row.data, translations, kept, perRow[i].map(issue => {
       if (dismissed.has(dismissKey(tab, i, issue.field))) {
         return { ...issue, suggestion: undefined, source: undefined }
       }
@@ -197,14 +210,23 @@ function withIssues(rows: GridRow[], tab: Tab, ref: Reference, config: EventsCon
       // local change wiped the answers and the user had to ask again.
       const remembered = suggestions[suggestionKey(issue.field, issue.value, issue.context)]
       return remembered ? { ...issue, suggestion: remembered, source: 'llm' as const } : issue
-    }),
+    })),
   }))
+}
+
+/** A row's issues plus its job-title finding, if any. A title that already breaks a
+ *  column rule (a pattern, a required value) shows that problem instead — one finding per
+ *  cell, and the rule's is the one that must be fixed first. */
+function withTitle(data: Row, translations: Record<string, Translation>, kept: Set<string>,
+                   issues: Issue[]): Issue[] {
+  const title = titleIssue(data[TITLE_FIELD] ?? '', translations, kept)
+  return title && !issues.some(i => i.field === TITLE_FIELD) ? [...issues, title] : issues
 }
 
 function revalidate(model: Model, ref: Reference, config: EventsConfig): Model {
   const tabs: Record<string, GridRow[]> = {}
   for (const tab of Object.keys(model.tabs)) {
-    tabs[tab] = withIssues(model.tabs[tab], tab, ref, config, model.dismissed, model.suggestions)
+    tabs[tab] = withIssues(model.tabs[tab], tab, ref, config, model)
   }
   return { ...model, tabs }
 }
@@ -229,6 +251,19 @@ export function applySuggestions(model: Model, answers: {
     suggestions[suggestionKey(field, issue.value, issue.context)] = answer.value
   }
   return revalidate({ ...model, suggestions }, ref, config)
+}
+
+/** Fold the server's job-title answers into the model, as suggestions on every cell
+ *  holding that title. */
+export function applyTranslations(model: Model, answers: {
+  key: string; english: string; language?: string | null
+}[], ref: Reference, config: EventsConfig): Model {
+  if (!answers.length) return model
+  const translations = { ...model.translations }
+  for (const a of answers) {
+    if (a.english) translations[a.key] = { english: a.english, language: a.language ?? null }
+  }
+  return revalidate({ ...model, translations }, ref, config)
 }
 
 // ---- operations (all local, all instant) -------------------------------------------------------
@@ -256,14 +291,20 @@ export function accept(model: Model, cells: { tab: Tab; rowId: string; field: Fi
 }
 
 /** Dismiss the suggestions on these cells. The value is untouched, so the cell stays
- *  flagged and keeps blocking submission. */
+ *  flagged and keeps blocking submission.
+ *
+ *  Except a job title not in English: rejecting its translation means "keep it as it
+ *  is", which settles it — on every row with that title (see titles.ts). */
 export function reject(model: Model, cells: { tab: Tab; rowId: string; field: Field }[],
                        ref: Reference, config: EventsConfig): Model {
   const next: Model = { ...model, tabs: { ...model.tabs },
-                        dismissed: new Set(model.dismissed) }
+                        dismissed: new Set(model.dismissed), kept: new Set(model.kept) }
   for (const { tab, rowId, field } of cells) {
     const index = next.tabs[tab]?.findIndex(r => r.id === rowId) ?? -1
-    if (index >= 0) next.dismissed.add(dismissKey(tab, index, field))
+    if (index < 0) continue
+    const issue = next.tabs[tab][index].issues.find(i => i.field === field)
+    if (issue?.code === NOT_ENGLISH) next.kept.add(titleKey(issue.value))
+    else next.dismissed.add(dismissKey(tab, index, field))
   }
   return revalidate(next, ref, config)
 }
@@ -279,12 +320,13 @@ export function reject(model: Model, cells: { tab: Tab; rowId: string; field: Fi
  *  what you have again. It is a normal undoable step, so it costs one ⌘Z to change your
  *  mind. */
 export function unrejectAll(model: Model, ref: Reference, config: EventsConfig): Model {
-  if (!model.dismissed.size) return model
-  return revalidate({ ...model, dismissed: new Set() }, ref, config)
+  if (!model.dismissed.size && !model.kept.size) return model
+  return revalidate({ ...model, dismissed: new Set(), kept: new Set() }, ref, config)
 }
 
-/** How many cells are currently refusing a suggestion. */
-export const rejectedCount = (model: Model): number => model.dismissed.size
+/** How many suggestions are currently turned down: dismissed cells, and job titles kept
+ *  as they are (one each, however many rows share the title). */
+export const rejectedCount = (model: Model): number => model.dismissed.size + model.kept.size
 
 /** Edit cells directly. Answering a cell yourself clears any rejection on it — the old
  *  proposal no longer refers to anything, and the new value deserves a fresh look. */
@@ -419,6 +461,7 @@ export function toPayload(model: Model): Payload {
   return {
     tabs,
     dismissed: [...model.dismissed],
+    kept_titles: [...model.kept],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     changes: changesOf(model).map(({ rowId, who, ...stored }) => stored),
   }
@@ -427,7 +470,7 @@ export function toPayload(model: Model): Payload {
 export function fromPayload(payload: Payload | undefined, event: EventContext,
                             ref: Reference, config: EventsConfig): Model {
   return build(payload?.tabs ?? {}, event, ref, config, new Set(payload?.dismissed ?? []),
-               {}, payload?.changes ?? [])
+               {}, payload?.changes ?? [], new Set(payload?.kept_titles ?? []))
 }
 
 /** Shape stored rows into grid rows and run NOTHING over them.
@@ -454,5 +497,5 @@ export function fromPayloadReadOnly(payload: Payload | undefined): Model {
       original: { ...data, ...(undo.get(`${tab}|${i}`) ?? {}) },
     }))
   }
-  return { tabs, suggestions: {}, dismissed: new Set() }
+  return { tabs, suggestions: {}, dismissed: new Set(), translations: {}, kept: new Set() }
 }
