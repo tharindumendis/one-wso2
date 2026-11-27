@@ -21,15 +21,17 @@ import { describe, expect, it } from "vitest";
 import type { FieldDef } from "../eventsTypes";
 import {
   accept,
+  answerTitle,
   applyTranslations,
   countsFor,
   edit,
   fromPayload,
+  pendingTitles,
   reject,
   rejectedCount,
   toPayload,
-  unrejectAll,
   type Model,
+  type Payload,
 } from "./model";
 import type { Reference } from "./reference";
 import type { EventsConfig } from "./schema";
@@ -47,9 +49,9 @@ const event = { name: "DSI Forum", date: "2026-11-20", campaignUrl: "" };
 
 const ANSWERS = [{ key: "directeur technique", english: "Technical Director", language: "French" }];
 
-function load(titles: string[], kept: string[] = []): Model {
+function load(titles: string[]): Model {
   const rows = titles.map((job_title, i) => ({ email: `p${i}@x.io`, job_title }));
-  return applyTranslations(fromPayload({ tabs: { Booth: rows }, kept_titles: kept }, event, ref, config), ANSWERS, ref, config);
+  return applyTranslations(fromPayload({ tabs: { Booth: rows } }, event, ref, config), ANSWERS, ref, config);
 }
 const cell = (m: Model, i: number) => ({ tab: "Booth", rowId: m.tabs.Booth[i].id, field: "job_title" });
 const titleIssues = (m: Model) => m.tabs.Booth.map((r) => r.issues.find((i) => i.code === NOT_ENGLISH));
@@ -77,43 +79,71 @@ describe("a title not in English", () => {
       suggestion: "Technical Director",
       bucket: "fixable",
       source: "llm",
-      message: "“Directeur Technique” is French. Accept the English title, or reject to keep it as it is.",
+      message: "“Directeur Technique” is French. Use the English title, or type your own in English.",
     });
     expect(b?.suggestion).toBe("Technical Director");
     expect(countsFor(m.tabs.Booth)).toMatchObject({ total: 2, fixable: 2 });
   });
 
-  it("is settled by accepting the English title", () => {
-    const base = load(["Directeur Technique"]);
+  it("is accepted on every row with that title at once", () => {
+    const base = load(["Directeur Technique", "CTO", " directeur  technique"]);
     const done = accept(base, [cell(base, 0)], ref, config);
-    expect(done.tabs.Booth[0].data.job_title).toBe("Technical Director");
-    expect(done.tabs.Booth[0].issues).toEqual([]);
+    expect(done.tabs.Booth.map((r) => r.data.job_title)).toEqual(["Technical Director", "CTO", "Technical Director"]);
+    expect(titleIssues(done)).toEqual([undefined, undefined, undefined]);
   });
 
-  it("is settled by keeping it — on every row with that title, and stored with the list", () => {
+  it("can't be rejected — it stays flagged, with its English still offered", () => {
     const base = load(["Directeur Technique", "directeur technique"]);
-    const kept = reject(base, [cell(base, 0)], ref, config);
-    expect(titleIssues(kept)).toEqual([undefined, undefined]);
-    expect(kept.tabs.Booth[0].data.job_title).toBe("Directeur Technique");
-    expect(kept.dismissed.size).toBe(0);
-    expect(toPayload(kept).kept_titles).toEqual(["directeur technique"]);
-    expect(rejectedCount(kept)).toBe(1);
+    const after = reject(base, [cell(base, 0), cell(base, 1)], ref, config);
+    expect(titleIssues(after).map((i) => i?.suggestion)).toEqual(["Technical Director", "Technical Director"]);
+    expect(after.dismissed.size).toBe(0);
+    expect(rejectedCount(after)).toBe(0);
   });
 
-  it("stays kept after a reload", () => {
-    const m = load(["Directeur Technique"], ["directeur technique"]);
-    expect(titleIssues(m)).toEqual([undefined]);
-  });
-
-  it("is offered again by Suggest fixes", () => {
-    const base = load(["Directeur Technique"]);
-    const again = unrejectAll(reject(base, [cell(base, 0)], ref, config), ref, config);
-    expect(titleIssues(again)[0]?.suggestion).toBe("Technical Director");
+  it("is not settled by a kept_titles list saved before keeping was removed", () => {
+    const rows = [{ email: "p@x.io", job_title: "Directeur Technique" }];
+    const old = { tabs: { Booth: rows }, kept_titles: ["directeur technique"] } as Payload;
+    const m = applyTranslations(fromPayload(old, event, ref, config), ANSWERS, ref, config);
+    expect(titleIssues(m)[0]?.suggestion).toBe("Technical Director");
+    expect(toPayload(m)).not.toHaveProperty("kept_titles");
   });
 
   it("goes away when the title is edited", () => {
     const base = load(["Directeur Technique"]);
     const edited = edit(base, "Booth", [{ rowId: base.tabs.Booth[0].id, field: "job_title", value: "CTO" }], ref, config);
     expect(titleIssues(edited)).toEqual([undefined]);
+  });
+});
+
+describe("the title dialog", () => {
+  const ANSWERS2 = [...ANSWERS, { key: "jefe de ventas", english: "Head of Sales", language: "Spanish" }];
+  const loadTwo = (titles: string[]) => applyTranslations(load(titles), ANSWERS2, ref, config);
+
+  it("asks once per distinct title, with how many rows it covers", () => {
+    const m = loadTwo(["Directeur Technique", "Jefe de Ventas", "directeur technique", "CTO"]);
+    expect(pendingTitles(m)).toEqual([
+      { key: "directeur technique", title: "Directeur Technique", english: "Technical Director", language: "French", rows: 2 },
+      { key: "jefe de ventas", title: "Jefe de Ventas", english: "Head of Sales", language: "Spanish", rows: 1 },
+    ]);
+  });
+
+  it("uses the English on every row, and moves on to the next title", () => {
+    const m = answerTitle(loadTwo(["Directeur Technique", "Jefe de Ventas", "directeur technique"]),
+      "directeur technique", "Technical Director", ref, config);
+    expect(m.tabs.Booth.map((r) => r.data.job_title)).toEqual(["Technical Director", "Jefe de Ventas", "Technical Director"]);
+    expect(pendingTitles(m).map((p) => p.key)).toEqual(["jefe de ventas"]);
+  });
+
+  it("takes your own title in place of the suggestion", () => {
+    const m = answerTitle(load(["Directeur Technique", "directeur technique"]), "directeur technique", " CTO ", ref, config);
+    expect(m.tabs.Booth.map((r) => r.data.job_title)).toEqual(["CTO", "CTO"]);
+    expect(pendingTitles(m)).toEqual([]);
+  });
+
+  it("refuses the same title typed back, or nothing at all", () => {
+    const base = load(["Directeur Technique"]);
+    expect(answerTitle(base, "directeur technique", "DIRECTEUR  technique", ref, config)).toBe(base);
+    expect(answerTitle(base, "directeur technique", "  ", ref, config)).toBe(base);
+    expect(pendingTitles(base)).toHaveLength(1);
   });
 });

@@ -67,6 +67,7 @@ import { toReference, type Reference } from "../rules/reference";
 import { WorkbookError, parseWorkbook, type ParsedWorkbook } from "../rules/workbook";
 import {
   accept,
+  answerTitle,
   applySuggestions,
   applyTranslations,
   changesOf,
@@ -74,6 +75,7 @@ import {
   edit,
   fillField,
   fromPayload,
+  pendingTitles,
   reject,
   rederive,
   removeRows,
@@ -83,7 +85,7 @@ import {
   type Model,
 } from "../rules/model";
 import { buildRequest } from "../rules/suggest";
-import { distinctTitles } from "../rules/titles";
+import { distinctTitles, titleKey } from "../rules/titles";
 import { buildReport, type Report } from "../rules/report";
 import { SPECIAL, labelOf, liveStatuses, picklistOf, type EventsConfig, type Field } from "../rules/schema";
 import { columnsFor } from "../rules/columns";
@@ -92,6 +94,7 @@ import IssueBar from "./IssueBar";
 import { issuesByField } from "../lib/issueGroups";
 import { ChangeListButton } from "./ChangeList";
 import FillDialog, { type FillTarget } from "./FillDialog";
+import TitleDialog from "./TitleDialog";
 import {
   CampaignUrlField,
   SdrOwnerField,
@@ -142,7 +145,16 @@ const broken = (row: { issues: { field: string }[] }, field: string | null) =>
 // which is why this split exists. Seeding local state from an async load in an effect is
 // the antipattern React's set-state-in-effect rule exists to catch; keying a child on the
 // loaded data is the supported way to do it.
-export default function SubmissionWorkspace({ id, onBack }: { id: string; onBack: () => void }) {
+export default function SubmissionWorkspace({
+  id,
+  onBack,
+  backLabel = "My submissions",
+}: {
+  id: string;
+  onBack: () => void;
+  /** The back button's label — Lead Import's step 3 goes back to the mapping. */
+  backLabel?: string;
+}) {
   const reference = useEventsReference();
   const statuses = useMemberStatuses();
   const fields = useFieldDefs();
@@ -163,6 +175,7 @@ export default function SubmissionWorkspace({ id, onBack }: { id: string; onBack
       key={id}
       id={id}
       onBack={onBack}
+      backLabel={backLabel}
       submission={submission.data}
       reference={toReference(reference.data)}
       config={{ statuses: statuses.data, fields: fields.data }}
@@ -175,6 +188,7 @@ export default function SubmissionWorkspace({ id, onBack }: { id: string; onBack
 function Workspace({
   id,
   onBack,
+  backLabel,
   submission,
   reference: ref,
   config,
@@ -183,6 +197,7 @@ function Workspace({
 }: {
   id: string;
   onBack: () => void;
+  backLabel: string;
   submission: SubmissionFull;
   reference: Reference;
   config: EventsConfig;
@@ -266,6 +281,8 @@ function Workspace({
   /** Rows ticked for a bulk edit, and the open fill dialog. */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filling, setFilling] = useState<FillTarget | null>(null);
+  /** The job-title dialog (TitleDialog). */
+  const [reviewingTitles, setReviewingTitles] = useState(false);
 
   // The active row filter, or null for "show everything". `field` scopes it to one column —
   // an any-issue filter is useless on a real list, where one sheet had a problem in every
@@ -393,6 +410,7 @@ function Workspace({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSaveState("saving");
       saveTimer.current = setTimeout(async () => {
+        saveTimer.current = null;
         const snapshot = latest.current;
         if (!snapshot) return;
         try {
@@ -415,10 +433,19 @@ function Workspace({
     [id],
   );
 
+  // Leaving with a save still pending SENDS it rather than dropping it: in Lead Import
+  // the grid is one step of three, and stepping back is a click away from an edit.
+  const { mutate: saveNow } = save;
   useEffect(
     () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (!saveTimer.current) return;
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      const pending = latest.current;
+      if (pending) saveNow({ id, payload: toPayload(pending), rowCount: totalRows(pending) });
     },
+    // Once, on unmount; `saveNow` is React Query's stable mutate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -448,13 +475,17 @@ function Workspace({
     [id, ref, config, assisted],
   );
 
-  /** Which job titles are not in English. Runs after a LOAD, like suggestions — only the
-   *  titles travel. Not gated on `assisted`: answers the server stored earlier still
-   *  apply when no model is configured, and automatic review reads the same answers. */
+  /** Which job titles are not in English. Runs after a load, and again whenever a title
+   *  appears that hasn't been asked about — one typed into a cell, or written in the title
+   *  dialog — so a new title can't slip past as English. Only the titles travel. Not
+   *  gated on `assisted`: answers the server stored earlier still apply when no model is
+   *  configured, and automatic review reads the same answers. */
   const askingTitles = useRef(false);
+  /** Titles already asked about, by titleKey. */
+  const askedTitles = useRef(new Set<string>());
   const askForTitles = useCallback(
     async (current: Model) => {
-      const titles = distinctTitles(current.tabs);
+      const titles = distinctTitles(current.tabs).filter((t) => !askedTitles.current.has(titleKey(t)));
       if (!titles.length || askingTitles.current) return;
       askingTitles.current = true;
       setCheckingTitles(true);
@@ -465,7 +496,9 @@ function Workspace({
         }
       } catch {
         // A head start like suggestions: failing leaves the titles unchecked, never stuck.
+        // Not retried this session — automatic review asks about them again anyway.
       } finally {
+        titles.forEach((t) => askedTitles.current.add(titleKey(t)));
         askingTitles.current = false;
         setCheckingTitles(false);
       }
@@ -484,6 +517,14 @@ function Workspace({
     void askForTitles(model);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A title written after loading. Waits a moment so a burst of edits is one request, and
+  // re-runs when a request in flight finishes, so a title added meanwhile isn't missed.
+  useEffect(() => {
+    if (!editable || !model || checkingTitles) return;
+    const t = setTimeout(() => void askForTitles(model), 600);
+    return () => clearTimeout(t);
+  }, [editable, model, checkingTitles, askForTitles]);
 
   // A highlighted column means nothing on a different tab, and neither does a selection of
   // rows you can no longer see.
@@ -681,6 +722,16 @@ function Workspace({
     [model, active, ref, config, apply],
   );
 
+  /** One job title answered on every row that holds it — one undo step per answer. */
+  const onAnswerTitle = useCallback(
+    (key: string, answer: string) => {
+      if (!model) return;
+      apply(answerTitle(model, key, answer, ref, config));
+    },
+    [model, ref, config, apply],
+  );
+  const titlesLeft = useMemo(() => (model ? pendingTitles(model) : []), [model]);
+
   const toggleRow = useCallback((rowId: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -799,6 +850,7 @@ function Workspace({
   async function flush() {
     if (!model) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
     await save.mutateAsync({ id, payload: toPayload(model), rowCount: totalRows(model) });
   }
 
@@ -909,7 +961,7 @@ function Workspace({
             : undefined
         }
         onBack={onBack}
-        backLabel="My submissions"
+        backLabel={backLabel}
         status={<StatusChip status={status} />}
       >
         {ready && editable && (
@@ -1238,6 +1290,7 @@ function Workspace({
                         activeField={jumpTo?.field}
                         onAccept={onAccept}
                         onReject={onReject}
+                        onReviewTitles={() => setReviewingTitles(true)}
                         onJump={(field) => {
                           const off = jumpTo?.field === field;
                           setJumpTo(off ? null : { field, nonce: (jumpTo?.nonce ?? 0) + 1 });
@@ -1387,6 +1440,13 @@ function Workspace({
         optionsFor={optionsFor}
         onClose={() => setFilling(null)}
         onApply={onFill}
+      />
+
+      <TitleDialog
+        open={reviewingTitles}
+        pending={titlesLeft}
+        onAnswer={onAnswerTitle}
+        onClose={() => setReviewingTitles(false)}
       />
 
       {editingCampaign && (

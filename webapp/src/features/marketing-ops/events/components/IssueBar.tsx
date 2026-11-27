@@ -16,7 +16,7 @@
 
 import type { MouseEvent } from "react";
 import { Box, Tooltip, Typography } from "@wso2/oxygen-ui";
-import { Check, X } from "@wso2/oxygen-ui-icons-react";
+import { Check, Languages, X } from "@wso2/oxygen-ui-icons-react";
 import { tint, useToneColors } from "./eventsStyles";
 import type { FieldIssues } from "../lib/issueGroups";
 import { TITLE_FIELD } from "../rules/titles";
@@ -43,6 +43,7 @@ export default function IssueBar({
   onAccept,
   onReject,
   onJump,
+  onReviewTitles,
 }: {
   groups: FieldIssues[];
   editable: boolean;
@@ -51,6 +52,8 @@ export default function IssueBar({
   onAccept: (cells: { row_id: string; field: string }[]) => void;
   onReject: (cells: { row_id: string; field: string }[]) => void;
   onJump?: (field: string) => void;
+  /** Opens the job-title dialog in place of Job Title's accept-all and reject-all. */
+  onReviewTitles?: () => void;
 }) {
   const tones = useToneColors();
 
@@ -75,12 +78,13 @@ export default function IssueBar({
 
       {groups.map((g) => {
         const canFix = g.suggested.length > 0;
-        // On Job Title the suggestions are translations, and turning one down keeps the
-        // title as it is (see rules/titles.ts) — say so.
         const n = g.suggested.length;
-        const titles = g.field === TITLE_FIELD;
-        const acceptLabel = titles ? `Use the English title on all ${n}` : `Accept all ${n} on ${g.label}`;
-        const rejectLabel = titles ? `Keep all ${n} as they are` : `Reject all ${n} on ${g.label}`;
+        // Job Title's suggestions are translations, and taking a column of them unread is
+        // the one bulk action we don't offer: they open a dialog that goes through each
+        // distinct title instead (TitleDialog).
+        const titles = g.field === TITLE_FIELD && !!onReviewTitles;
+        const acceptLabel = `Accept all ${n} on ${g.label}`;
+        const rejectLabel = `Reject all ${n} on ${g.label}`;
         // Red only when a person is genuinely required. A field with suggestions waiting
         // is informational, not an alarm.
         const colour = g.blocked ? tones.blocking : tones.suggested;
@@ -149,7 +153,25 @@ export default function IssueBar({
             {/* Per-field accept-all: taking five country fixes in one click is the single
                 most-used action on this screen. Divided from the label so it's obvious
                 these act on THIS field and aren't two more things to read. */}
-            {editable && canFix && (
+            {editable && canFix && titles && (
+              <>
+                <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
+                <Tooltip title="Go through each title: use the English, or write your own" arrow>
+                  <Box
+                    component="button"
+                    type="button"
+                    onMouseDown={fire(() => onReviewTitles?.())}
+                    sx={{ ...action, width: "auto", px: 0.9, gap: 0.5, color: tones.accepted, fontFamily: "inherit" }}
+                  >
+                    <Languages size={12} />
+                    <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: "inherit" }}>
+                      Review
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              </>
+            )}
+            {editable && canFix && !titles && (
               <>
                 <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
                 <Tooltip title={acceptLabel} arrow>

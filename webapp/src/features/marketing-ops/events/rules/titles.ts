@@ -21,12 +21,11 @@
 // answer (operations/events/titles.py); this file turns those answers into findings on
 // the grid.
 //
-// A flagged title is a SUGGESTION like any other — "Directeur Technique → Technical
-// Director", accept or reject — with one difference: rejecting it means "keep it as it
-// is", and that SETTLES the cell. A French title is not wrong, only untranslated, so the
-// RMM's word is final. Kept titles are stored with the list (`kept_titles`), and
-// automatic review on the server refuses a list only while a flagged title is neither
-// replaced nor kept.
+// A flagged title is a suggestion — "Directeur Technique → Technical Director" — with
+// one difference from the rest: it cannot be turned down. Every title goes to Salesforce
+// in English, so the only answers are the suggestion or the RMM's own English title
+// (TitleDialog). Automatic review on the server refuses a list while any title is still
+// flagged.
 //
 // ONE WSO2 ADDITION: not in the Marketing Ops original.
 
@@ -44,15 +43,15 @@ export interface Translation {
 }
 
 /** Trimmed, whitespace collapsed, lower-cased. Mirrors titles.key on the server — keep
- *  the two in step, or a kept title would still be refused there. */
+ *  the two in step, or the grid and review would disagree about a title. */
 export const titleKey = (title: string): string =>
   (title ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase()
 
-/** The finding for one cell's title, or nothing when it is English, kept, or unknown. */
-export function titleIssue(value: string, translations: Record<string, Translation>,
-                           kept: ReadonlySet<string>): Issue | undefined {
+/** The finding for one cell's title, or nothing when it is English or not yet known. */
+export function titleIssue(value: string,
+                           translations: Record<string, Translation>): Issue | undefined {
   const key = titleKey(value)
-  if (!key || kept.has(key)) return undefined
+  if (!key) return undefined
   const found = translations[key]
   if (!found) return undefined
   const language = found.language ? `is ${found.language}` : 'isn’t in English'
@@ -60,7 +59,7 @@ export function titleIssue(value: string, translations: Record<string, Translati
     field: TITLE_FIELD,
     code: NOT_ENGLISH,
     bucket: 'fixable',
-    message: `“${value.trim()}” ${language}. Accept the English title, or reject to keep it as it is.`,
+    message: `“${value.trim()}” ${language}. Use the English title, or type your own in English.`,
     value,
     suggestion: found.english,
     source: 'llm',

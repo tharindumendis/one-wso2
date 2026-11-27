@@ -1252,14 +1252,18 @@ function Diff({
             >
               <Check size={10} />
             </Box>
-            <Box
-              component="span"
-              title={issue.code === NOT_ENGLISH ? "Keep it as it is" : "Reject"}
-              onMouseDown={fire(() => onReject(cell), busy)}
-              sx={{ ...pill, color: "text.secondary", borderColor: "divider" }}
-            >
-              <X size={10} />
-            </Box>
+            {/* A job title not in English can't be turned down — it has to become English,
+                the suggestion or one typed into the cell (rules/titles.ts). */}
+            {issue.code !== NOT_ENGLISH && (
+              <Box
+                component="span"
+                title="Reject"
+                onMouseDown={fire(() => onReject(cell), busy)}
+                sx={{ ...pill, color: "text.secondary", borderColor: "divider" }}
+              >
+                <X size={10} />
+              </Box>
+            )}
           </Box>
         )}
       </Box>
