@@ -120,7 +120,9 @@ function stat(label: string): string {
   return within(summary).getByText(label).nextElementSibling?.textContent ?? "";
 }
 
-describe("Lead import", () => {
+// Each test drives the whole page through three screens: 2–4s alone, over the 5s default
+// when the suite runs in parallel. Same allowance as the other full-page tests.
+describe("Lead import", { timeout: 20000 }, () => {
   beforeEach(() => {
     suggest.mockReset();
     saveBlob.mockReset();
