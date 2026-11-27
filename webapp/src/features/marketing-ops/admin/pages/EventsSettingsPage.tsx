@@ -39,6 +39,7 @@ import {
 } from "../../api/useEvents";
 import type { FieldDef } from "../../events/eventsTypes";
 import GeographySync from "../../events/components/GeographySync";
+import PicklistSync from "../../events/components/PicklistSync";
 import NewStatusDialog from "../../events/components/NewStatusDialog";
 import StatusEditor from "../../events/components/StatusEditor";
 import { primaryBtn, quietBtn } from "../../events/components/eventsStyles";
@@ -237,6 +238,7 @@ export default function EventsSettingsPage() {
             }}
           />
 
+          <PicklistSync />
           <GeographySync />
         </Box>
       )}

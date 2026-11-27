@@ -1128,6 +1128,9 @@ export const marketingOpsServiceUrls = {
   // Countries and states, a copy of Salesforce's: freshness (open) and Sync now (admin).
   eventsGeography: `${marketingOpsBackendUrl}/api/events/geography`,
   eventsGeographySync: `${marketingOpsBackendUrl}/api/events/geography/sync`,
+  // Pick list columns copied from Salesforce (Industry): status (open) and Sync (admin).
+  eventsPicklists: `${marketingOpsBackendUrl}/api/events/picklists`,
+  eventsPicklistsSync: `${marketingOpsBackendUrl}/api/events/picklists/sync`,
   eventsFields: `${marketingOpsBackendUrl}/api/events/fields`,
   eventsFieldsForTab: (tab: string) =>
     `${marketingOpsBackendUrl}/api/events/fields/${encodeURIComponent(tab)}`,

@@ -170,6 +170,24 @@ export interface GeographyStatus {
   refresh_hours: number;
 }
 
+/** A pick list column whose values are copied from a Salesforce Lead field (Industry). */
+export interface PicklistSyncStatus {
+  /** Our column, e.g. "Industry". */
+  field_name: string;
+  /** The Lead field it is copied from. */
+  salesforce_field: string;
+  /** Last successful sync; null if never synced (still the list the migration set). */
+  synced_at: string | null;
+  synced_by: string | null;
+  attempted_at: string | null;
+  /** Why the last attempt failed; cleared by the next success. */
+  error: string | null;
+  /** Values on the column now. */
+  value_count: number;
+  /** Member statuses that have the column. */
+  column_count: number;
+}
+
 /** One step of automatic review. */
 export interface ReviewCheck {
   key: "rows" | "duplicates" | "sdr" | "titles" | "campaign";

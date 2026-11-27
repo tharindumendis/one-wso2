@@ -49,6 +49,7 @@ import type {
   NotificationSettings,
   NotificationSettingsOut,
   Payload,
+  PicklistSyncStatus,
   ReferenceResponse,
   ReviewResult,
   SubmissionFull,
@@ -70,6 +71,7 @@ const KEY = {
   fields: ["marketing-ops", "events", "fields"] as const,
   reference: ["marketing-ops", "events", "reference"] as const,
   geography: ["marketing-ops", "events", "geography"] as const,
+  picklists: ["marketing-ops", "events", "picklists"] as const,
   queue: ["marketing-ops", "events", "review", "queue"] as const,
   reviewSubmission: (id: string) => ["marketing-ops", "events", "review", id] as const,
   reviewComments: (id: string) => ["marketing-ops", "events", "review", "comments", id] as const,
@@ -154,6 +156,37 @@ export function useSyncGeography() {
     },
     // A failure is recorded server-side; show it in the status too.
     onError: () => qc.invalidateQueries({ queryKey: KEY.geography }),
+  });
+}
+
+// Pick list columns copied from Salesforce (Industry), for Settings → Events.
+export function usePicklistStatus() {
+  const { getAccessToken, ready } = useBase();
+  return useQuery<PicklistSyncStatus[]>({
+    queryKey: KEY.picklists,
+    enabled: ready,
+    queryFn: async () =>
+      authedGet<PicklistSyncStatus[]>(urls.eventsPicklists, await getAccessToken()),
+    refetchOnMount: true,
+    retry: httpRetry,
+  });
+}
+
+// Sync from Salesforce: copy Salesforce's values onto those columns on every status. On
+// success the column definitions are reloaded, so the editor and this session's checks
+// use the new values straight away.
+export function useSyncPicklists() {
+  const { getAccessToken } = useBase();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      authedPost<PicklistSyncStatus[]>(urls.eventsPicklistsSync, await getAccessToken(), {}),
+    onSuccess: (data) => {
+      qc.setQueryData(KEY.picklists, data);
+      return qc.invalidateQueries({ queryKey: KEY.fields });
+    },
+    // A failure is recorded server-side; show it in the status too.
+    onError: () => qc.invalidateQueries({ queryKey: KEY.picklists }),
   });
 }
 
