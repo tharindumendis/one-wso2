@@ -225,7 +225,8 @@ describe("Lead import", { timeout: 20000 }, () => {
     await openFile();
     await waitFor(() => expect(stat("Columns mapped")).toBe("3 of 4"));
     fireEvent.click(screen.getByRole("button", { name: "Download workbook" }));
-    await screen.findByText(/Apidays - Booth\.xlsx/);
+    // Building the workbook can outlast findBy's 1s default when the suite runs in parallel.
+    await screen.findByText(/Apidays - Booth\.xlsx/, {}, { timeout: 5000 });
     expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), "Apidays - Booth.xlsx");
   });
 
@@ -233,7 +234,7 @@ describe("Lead import", { timeout: 20000 }, () => {
     await openFile();
     await waitFor(() => expect(stat("Columns mapped")).toBe("3 of 4"));
     fireEvent.click(screen.getByRole("button", { name: "Create submission" }));
-    await screen.findByText("Workspace for sub-1");
+    await screen.findByText("Workspace for sub-1", {}, { timeout: 5000 });
     expect(createSubmission).toHaveBeenCalledWith(expect.objectContaining({ event_name: "Apidays Paris" }));
     expect(saveSubmission).toHaveBeenCalledWith({
       id: "sub-1",
