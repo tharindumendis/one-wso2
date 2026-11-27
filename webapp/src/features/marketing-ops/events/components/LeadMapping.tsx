@@ -207,11 +207,15 @@ export default function LeadMapping({
     setSubmitting(true);
     setSubmitError(null);
     try {
+      const replacing = written !== null;
       let id = submissionId;
       if (!id) {
         const created = await createSubmission.mutateAsync(meta);
         if (!created?.id) throw new Error("The server did not return the new submission.");
         id = created.id;
+        // Handed up at once, so if saving the rows fails, trying again saves into this
+        // submission instead of creating another.
+        onCreated(id);
       }
       await saveSubmission.mutateAsync({
         id,
@@ -219,9 +223,8 @@ export default function LeadMapping({
         rowCount: output.rows.length,
         sourceFilename: fileName,
       });
-      setWritten(JSON.stringify(mapping));
-      if (!submissionId) onCreated(id);
-      onNext(Boolean(submissionId));
+      setWritten(signature);
+      onNext(replacing);
     } catch (e) {
       setSubmitError(leadImportError(e));
     } finally {
@@ -238,14 +241,18 @@ export default function LeadMapping({
   const unused = sources.filter((s) => !used.has(s.index));
   const changed = Boolean(suggested && mapping && JSON.stringify(suggested) !== JSON.stringify(mapping));
   const noRows = output !== null && output.rows.length === 0;
-  // After the submission exists: unchanged, Next just moves on; changed, it offers to
-  // write the rows again.
-  const stale = Boolean(submissionId && mapping && written !== JSON.stringify(mapping));
+  // What the rows were written from: the sheet, its heading row and the mapping. Changing
+  // any of them makes the written rows out of date, even with the same mapping.
+  const signature = JSON.stringify([sheetIndex, headerRow, mapping]);
+  // Nothing written yet — no submission, or one whose rows failed to save — is a first
+  // write. After that: unchanged, Next just moves on; changed, it offers to replace.
+  const firstWrite = written === null;
+  const stale = Boolean(!firstWrite && mapping && written !== signature);
   const nextLabel = submitting
-    ? submissionId
-      ? "Replacing the rows…"
-      : "Creating submission…"
-    : !submissionId
+    ? firstWrite
+      ? "Creating submission…"
+      : "Replacing the rows…"
+    : firstWrite
       ? "Create submission"
       : stale
         ? "Replace the rows"
@@ -291,7 +298,7 @@ export default function LeadMapping({
               sx={primaryBtn}
               disabled={loading || noRows || submitting}
               onClick={() => {
-                if (!submissionId) void submit();
+                if (firstWrite) void submit();
                 else if (stale) setConfirmReplace(true);
                 else onNext(false);
               }}
@@ -339,7 +346,7 @@ export default function LeadMapping({
       ) : (
         <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
           Values are copied exactly as they are in the file. Check the mapping, then{" "}
-          {submissionId ? "go on to fix and review the rows." : "create the submission."}
+          {firstWrite ? "create the submission." : "go on to fix and review the rows."}
         </Typography>
       )}
 

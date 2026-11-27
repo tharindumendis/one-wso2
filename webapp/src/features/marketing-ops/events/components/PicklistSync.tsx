@@ -26,6 +26,7 @@ import { describeError } from "@api/errors";
 import { usePicklistStatus, useSyncPicklists } from "../../api/useEvents";
 import type { PicklistSyncStatus } from "../eventsTypes";
 import { sinceText } from "../lib/geography";
+import { describeEventsError } from "../lib/serverError";
 import { quietBtn } from "./eventsStyles";
 
 /** "28 values on 5 statuses. Synced 2 days ago by …" */
@@ -47,7 +48,9 @@ export default function PicklistSync() {
   const status = usePicklistStatus();
   const sync = useSyncPicklists();
   const items = status.data ?? [];
-  const failures = items.map(failure).filter((f): f is string => !!f);
+  // The attempt just made, when it failed, says why itself: a recorded failure may be an
+  // earlier one, so those show only when there is no fresher answer.
+  const failures = sync.isError ? [] : items.map(failure).filter((f): f is string => !!f);
   const names = items.map((p) => p.field_name).join(", ") || "Industry";
 
   return (
@@ -83,9 +86,9 @@ export default function PicklistSync() {
         </>
       )}
 
-      {sync.isError && failures.length === 0 && (
+      {sync.isError && (
         <Alert severity="error" sx={{ fontSize: 12.5, mb: 1.5 }}>
-          {describeError(sync.error)}
+          {describeEventsError(sync.error)}
         </Alert>
       )}
 

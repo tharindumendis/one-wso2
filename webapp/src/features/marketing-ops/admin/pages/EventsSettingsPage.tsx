@@ -238,12 +238,14 @@ export default function EventsSettingsPage() {
               setWanted(created?.name ?? name);
             }}
           />
-
-          <PicklistSync />
-          <GeographySync />
-          <FlaggedTitles />
         </Box>
       )}
+
+      {/* Outside the member-status branch: they read their own endpoints, so a failure to
+          load the statuses or columns doesn't take the reference syncs away with it. */}
+      <PicklistSync />
+      <GeographySync />
+      <FlaggedTitles />
     </MarketingOpsShell>
   );
 }

@@ -17,17 +17,14 @@
 // Job titles that are not in English.
 //
 // Salesforce keeps a job title as free text, so nothing there catches "Directeur
-// Technique". The server asks Claude about each distinct title once and remembers the
-// answer (operations/events/titles.py); this file turns those answers into findings on
-// the grid.
+// Technique". The Marketing Ops backend asks Claude about each distinct title once and
+// remembers the answer; this file turns those answers into findings on the grid.
 //
 // A flagged title is a suggestion — "Directeur Technique → Technical Director" — with
 // one difference from the rest: it cannot be turned down. Every title goes to Salesforce
 // in English, so the only answers are the suggestion or the RMM's own English title
 // (TitleDialog). Automatic review on the server refuses a list while any title is still
 // flagged.
-//
-// ONE WSO2 ADDITION: not in the Marketing Ops original.
 
 import type { Issue, Row } from './validate'
 
@@ -52,7 +49,9 @@ export function titleIssue(value: string,
                            translations: Record<string, Translation>): Issue | undefined {
   const key = titleKey(value)
   if (!key) return undefined
-  const found = translations[key]
+  // Own entries only: a plain object inherits "constructor", "toString" and the like, and
+  // a title spelled that way must not read as a server answer.
+  const found = Object.hasOwn(translations, key) ? translations[key] : undefined
   if (!found) return undefined
   const language = found.language ? `is ${found.language}` : 'isn’t in English'
   return {

@@ -358,6 +358,16 @@ export function useSaveSubmission() {
         source_filename: sourceFilename,
         template_version: templateVersion,
       }),
+    // Written into the cache as the save starts, not only when it lands: a screen that
+    // leaves with a save in flight and is opened again at once (Lead Import's step 3)
+    // would otherwise rebuild its rows from the copy before that save, and its next save
+    // would put the old rows back.
+    onMutate: ({ id, payload }) => {
+      qc.setQueriesData<SubmissionFull>(
+        { queryKey: ["marketing-ops", "events", "submission", id] },
+        (old) => (old ? { ...old, payload } : old),
+      );
+    },
     onSuccess: (saved, { id, payload }) => {
       // The open submission is cached with staleTime Infinity (see useSubmission), so
       // nothing refreshes it on its own. Before this, the cache kept the EMPTY payload it

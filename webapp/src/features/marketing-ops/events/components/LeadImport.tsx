@@ -96,6 +96,9 @@ export default function LeadImport() {
   /** Bumped when step 2 rewrites the rows, so step 3 loads them again. */
   const [rowsVersion, setRowsVersion] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  /** The current read. A create or save started for an earlier read may still finish
+   *  after a new file was read; its callbacks are ignored. */
+  const currentRead = useRef(0);
 
   const created = Boolean(submissionId);
   const locked = reading || created;
@@ -107,7 +110,11 @@ export default function LeadImport() {
   };
   // The file and lead type step 2 was built from are still the chosen ones.
   const sameRead = Boolean(opened && opened.file === file && opened.status === status);
-  const reached: Step = created ? 2 : opened ? 1 : 0;
+  // Map columns is reachable only for the file and lead type it was read from: after
+  // choosing another file, the step bar must not reopen the old one's mapping.
+  const reached: Step = created ? 2 : sameRead ? 1 : 0;
+  // The read this render's mapping callbacks belong to (see currentRead).
+  const thisRead = readCount;
 
   function startOver() {
     setEventName("");
@@ -120,6 +127,8 @@ export default function LeadImport() {
     setOpened(null);
     setSubmissionId(null);
     setStep(0);
+    // A create still running for the old file must not land on the fresh start.
+    currentRead.current = -1;
   }
 
   // The checks that need no reading (type, size) run on pick, so a PDF is refused before
@@ -156,7 +165,8 @@ export default function LeadImport() {
     setReading(true);
     try {
       setOpened({ file, sheets: await readLeadFile(file), status });
-      setReadCount((n) => n + 1);
+      currentRead.current = readCount + 1;
+      setReadCount(readCount + 1);
       setStep(1);
     } catch (e) {
       setError(e instanceof LeadFileError ? e.message : `The file could not be read. ${describeError(e)}`);
@@ -406,8 +416,11 @@ export default function LeadImport() {
             meta={meta}
             submissionId={submissionId}
             onBack={() => setStep(0)}
-            onCreated={setSubmissionId}
+            onCreated={(id) => {
+              if (thisRead === currentRead.current) setSubmissionId(id);
+            }}
             onNext={(replaced) => {
+              if (thisRead !== currentRead.current) return;
               if (replaced) setRowsVersion((n) => n + 1);
               setStep(2);
             }}

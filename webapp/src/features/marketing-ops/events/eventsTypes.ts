@@ -128,21 +128,33 @@ export interface Comment {
 // (the campaign URL, duplicate emails), which an admin may overrule, or an invariant the
 // browser should already have caught — in practice a stale tab. `tab` and `row` are
 // null for a problem with the submission rather than a row.
+/** One thing the server's review refused, said so the RMM can find it. */
 export interface Problem {
+  /** The member status (tab) the row is on; null for a problem with the whole list,
+   *  such as a missing campaign URL or SDR owner. */
   tab: string | null;
+  /** The row's position in that tab, counting from 1 as the grid shows it; null
+   *  whenever `tab` is. */
   row: number | null;
+  /** The column's key, when the problem is about one cell or one list-level field. */
   field?: string;
+  /** What is wrong, in words for the RMM. */
   message: string;
 }
 
 /** A Salesforce campaign, as the Sales Entity Service describes it. */
 export interface CampaignInfo {
+  /** The Salesforce campaign ID. */
   id: string;
   name?: string | null;
+  /** Salesforce's campaign type, e.g. "Conference"; null when not set. */
   type?: string | null;
+  /** Salesforce's campaign status, e.g. "Planned"; null when not set. */
   status?: string | null;
   isActive: boolean;
+  /** YYYY-MM-DD as Salesforce holds it; null or absent when the campaign has none. */
   startDate?: string | null;
+  /** YYYY-MM-DD as Salesforce holds it; null or absent when the campaign has none. */
   endDate?: string | null;
 }
 
@@ -186,7 +198,7 @@ export interface PicklistSyncStatus {
   field_name: string;
   /** The Lead field it is copied from. */
   salesforce_field: string;
-  /** Last successful sync; null if never synced (still the list the migration set). */
+  /** Last successful sync; null if never synced (the column still has its initial values). */
   synced_at: string | null;
   synced_by: string | null;
   attempted_at: string | null;
@@ -231,8 +243,13 @@ export interface SuggestResult {
 
 /** The job titles that are not in English (POST /submissions/{id}/titles). `key` is the
  *  title's titleKey. */
+/** The list's job titles that are not in English. */
 export interface TitleResult {
+  /** False when the server has no model configured: titles it answered before still
+   *  come back, but new ones go unchecked. */
   assisted: boolean;
+  /** One entry per flagged title, keyed as titleKey keys it; `language` is null when the
+   *  server could tell only that it isn't English. */
   translations: { key: string; english: string; language: string | null }[];
 }
 

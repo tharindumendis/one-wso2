@@ -14,8 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Job titles not in English: flagged as a suggestion, accepted or kept, and the kept
-// ones stored with the list.
+// Job titles not in English: flagged with an English suggestion, and flagged until the
+// title is replaced with the suggestion or the RMM's own English title.
 
 import { describe, expect, it } from "vitest";
 import type { FieldDef } from "../eventsTypes";
@@ -35,7 +35,7 @@ import {
 } from "./model";
 import type { Reference } from "./reference";
 import type { EventsConfig } from "./schema";
-import { NOT_ENGLISH, distinctTitles, titleKey } from "./titles";
+import { NOT_ENGLISH, distinctTitles, titleIssue, titleKey } from "./titles";
 
 function def(field_name: string, extra: Partial<FieldDef> = {}): FieldDef {
   return { field_name, header_label: field_name, data_type: "text", picklist: [], mandatory: false, ...extra };
@@ -145,5 +145,14 @@ describe("the title dialog", () => {
     expect(answerTitle(base, "directeur technique", "DIRECTEUR  technique", ref, config)).toBe(base);
     expect(answerTitle(base, "directeur technique", "  ", ref, config)).toBe(base);
     expect(pendingTitles(base)).toHaveLength(1);
+  });
+});
+
+describe("titleIssue", () => {
+  it("reads only the server's own answers, not what every object inherits", () => {
+    expect(titleIssue("Constructor", {})).toBeUndefined();
+    expect(titleIssue("toString", {})).toBeUndefined();
+    const own = { constructor: { english: "Builder", language: "Spanish" } };
+    expect(titleIssue("Constructor", own)?.code).toBe(NOT_ENGLISH);
   });
 });

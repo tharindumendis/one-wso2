@@ -44,8 +44,8 @@ describe("sinceText", () => {
 describe("freshness", () => {
   it("says who synced, or that it was automatic", () => {
     expect(freshnessText(base, NOW)).toBe("Synced 3 hours ago automatically.");
-    expect(freshnessText({ ...base, synced_by: "hasina@wso2.com" }, NOW)).toBe(
-      "Synced 3 hours ago by hasina@wso2.com.",
+    expect(freshnessText({ ...base, synced_by: "admin@example.com" }, NOW)).toBe(
+      "Synced 3 hours ago by admin@example.com.",
     );
   });
 

@@ -257,6 +257,8 @@ function Workspace({
   const [review, setReview] = useState<ReviewState | null>(null);
   /** The grid's report from a failed review, for "Show me where". */
   const [pendingReport, setPendingReport] = useState<Report | null>(null);
+  /** Whether the report's problems are ones an admin may overrule (see startReview). */
+  const [reportCanEscalate, setReportCanEscalate] = useState(false);
   /** The campaign URL as last saved. Local because fixing it here must reach the grid's
    *  Campaign ID column and any re-upload without waiting on a refetch. */
   const [campaignUrl, setCampaignUrl] = useState(submission.sf_campaign_url ?? "");
@@ -659,6 +661,9 @@ function Workspace({
         config,
       );
       setModel(built);
+      // The new model carries no translations, so titles asked about for the previous
+      // file are asked again (the server answers them from what it stored, without Claude).
+      askedTitles.current.clear();
       // A different file is a different LIST; undoing back into the previous one would
       // interleave two documents' rows.
       setPast([]);
@@ -801,6 +806,7 @@ function Workspace({
       setReport(null);
       setPendingReport(outstanding);
       const { lines, unusable } = describeIssues(model, config);
+      setReportCanEscalate(!unusable);
       mark("grid", { state: "failed", problems: lines });
       // An admin can't edit the list either, so what makes a row unusable — no name, no
       // usable email, consent not confirmed — is not theirs to overrule. Offering "Send
@@ -1354,6 +1360,7 @@ function Workspace({
 
       <ReportDialog
         report={report}
+        canEscalate={reportCanEscalate}
         onClose={() => setReport(null)}
         onGoTo={(tab, field) => {
           setReport(null);
@@ -1933,11 +1940,14 @@ function ProblemList({
  *  just a complaint. */
 function ReportDialog({
   report,
+  canEscalate,
   onClose,
   onGoTo,
   onEscalate,
 }: {
   report: Report | null;
+  /** False when a problem makes rows unusable: an admin can't fix those either. */
+  canEscalate: boolean;
   onClose: () => void;
   onGoTo: (tab: Tab, field: string) => void;
   /** The way out when the rules are wrong about this list — an admin decides instead. */
@@ -2020,11 +2030,13 @@ function ReportDialog({
         ))}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Tooltip arrow title="When you're sure the list is right and the checks are wrong about it">
-          <Button onClick={onEscalate} sx={{ ...quietBtn, mr: "auto" }}>
-            Send to admin instead
-          </Button>
-        </Tooltip>
+        {canEscalate && (
+          <Tooltip arrow title="When you're sure the list is right and the checks are wrong about it">
+            <Button onClick={onEscalate} sx={{ ...quietBtn, mr: "auto" }}>
+              Send to admin instead
+            </Button>
+          </Tooltip>
+        )}
         <Button variant="contained" onClick={onClose} sx={primaryBtn}>
           Back to the list
         </Button>

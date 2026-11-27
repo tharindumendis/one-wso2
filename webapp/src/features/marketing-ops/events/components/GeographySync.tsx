@@ -27,13 +27,16 @@ import { RefreshCwIcon } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
 import { useGeographyStatus, useSyncGeography } from "../../api/useEvents";
 import { failureText, freshnessText } from "../lib/geography";
+import { describeEventsError } from "../lib/serverError";
 import { quietBtn } from "./eventsStyles";
 
 export default function GeographySync() {
   const status = useGeographyStatus();
   const sync = useSyncGeography();
   const s = status.data;
-  const failure = s ? failureText(s) : null;
+  // The attempt just made, when it failed, says why itself: a recorded failure may be an
+  // earlier one, so it shows only when there is no fresher answer.
+  const failure = s && !sync.isError ? failureText(s) : null;
 
   return (
     <Box sx={{ mt: 4, pt: 3, borderTop: "1px solid", borderColor: "divider", maxWidth: 800 }}>
@@ -81,9 +84,9 @@ export default function GeographySync() {
         </>
       )}
 
-      {sync.isError && !failure && (
+      {sync.isError && (
         <Alert severity="error" sx={{ fontSize: 12.5, mb: 1.5 }}>
-          {describeError(sync.error)}
+          {describeEventsError(sync.error)}
         </Alert>
       )}
 

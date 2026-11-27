@@ -283,6 +283,26 @@ describe("Lead import", { timeout: 20000 }, () => {
     expect(screen.getByPlaceholderText(/Exito BFSI Summit/)).toHaveProperty("disabled", true);
   });
 
+  it("a failed save keeps the new submission, and trying again saves into it", async () => {
+    saveSubmission.mockRejectedValueOnce(new Error("Network down."));
+    await openFile();
+    await waitFor(() => expect(stat("Columns mapped")).toBe("3 of 4"));
+    fireEvent.click(screen.getByRole("button", { name: "Create submission" }));
+    expect(await screen.findByText(/Network down\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create submission" }));
+    await screen.findByText("Workspace for sub-1", {}, { timeout: 5000 });
+    expect(createSubmission).toHaveBeenCalledTimes(1);
+    expect(saveSubmission.mock.calls.map((c) => c[0].id)).toEqual(["sub-1", "sub-1"]);
+  });
+
+  it("after choosing another file, the old file's mapping can't be reopened", async () => {
+    const view = await openFile();
+    fireEvent.click(screen.getByRole("button", { name: /Set up/ }));
+    expect(screen.getByRole("button", { name: /Map columns/ })).toBeTruthy();
+    chooseFile(view.container, "Other.xlsx");
+    expect(screen.queryByRole("button", { name: /Map columns/ })).toBeNull();
+  });
+
   it("a failed download keeps the mapping and retries the download, not the suggestion", async () => {
     saveBlob.mockImplementationOnce(() => {
       throw new Error("Disk full.");

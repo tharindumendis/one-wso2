@@ -34,6 +34,7 @@ const config: EventsConfig = {
       def("Email", { mandatory: true, pattern: LOOSE_EMAIL }),
       def("Assign to User", { pattern: LOOSE_EMAIL }),
       def("Badge", { pattern: "^B-\\d+$" }),
+      def("Social handle", { pattern: "^@[a-z]+$" }),
     ],
   },
 };
@@ -49,6 +50,9 @@ describe("email", () => {
     "amine@localhost",
     "Amine <amine@medina-telecom.example>",
     "amine@medina-telecom..example",
+    'amine@medina"telecom.example',
+    "amine@(medina).example",
+    "amine@medina-telecom.ex[ample]",
   ])("refuses %s", (email) => {
     expect(EMAIL_RE.test(email)).toBe(false);
     expect(messages([{ email }])[0]).toEqual([`“${email}” isn’t a valid email address.`]);
@@ -63,9 +67,13 @@ describe("email", () => {
   );
 
   it("words a pattern failure by what the column holds", () => {
-    expect(messages([{ email: "a@x.io", assign_to_user: "Riadh B.", badge: "1000" }])[0]).toEqual([
+    expect(
+      messages([{ email: "a@x.io", assign_to_user: "Riadh B.", badge: "1000", social_handle: "wso2" }])[0],
+    ).toEqual([
       "“Riadh B.” isn’t a valid email address.",
       "“1000” isn’t in the format Badge needs.",
+      // An "@" in the pattern doesn't make it an email column.
+      "“wso2” isn’t in the format Social handle needs.",
     ]);
   });
 });

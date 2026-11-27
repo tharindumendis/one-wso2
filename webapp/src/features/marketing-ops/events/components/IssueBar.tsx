@@ -77,12 +77,16 @@ export default function IssueBar({
       </Typography>
 
       {groups.map((g) => {
-        const canFix = g.suggested.length > 0;
-        const n = g.suggested.length;
-        // Job Title's suggestions are translations, and taking a column of them unread is
-        // the one bulk action we don't offer: they open a dialog that goes through each
-        // distinct title instead (TitleDialog).
-        const titles = g.field === TITLE_FIELD && !!onReviewTitles;
+        // Job-title translations are the one suggestion we don't take in bulk — a column
+        // of them accepted unread — so they open a dialog that goes through each distinct
+        // title (TitleDialog). Any other suggestion on the column (a pick-list spelling,
+        // say) keeps accept-all and reject-all.
+        const titles = g.field === TITLE_FIELD && !!onReviewTitles && g.translations.length > 0;
+        const inBulk = titles
+          ? g.suggested.filter((c) => !g.translations.some((t) => t.row_id === c.row_id))
+          : g.suggested;
+        const canFix = inBulk.length > 0;
+        const n = inBulk.length;
         const acceptLabel = `Accept all ${n} on ${g.label}`;
         const rejectLabel = `Reject all ${n} on ${g.label}`;
         // Red only when a person is genuinely required. A field with suggestions waiting
@@ -153,14 +157,17 @@ export default function IssueBar({
             {/* Per-field accept-all: taking five country fixes in one click is the single
                 most-used action on this screen. Divided from the label so it's obvious
                 these act on THIS field and aren't two more things to read. */}
-            {editable && canFix && titles && (
+            {editable && titles && (
               <>
                 <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
                 <Tooltip title="Go through each title: use the English, or write your own" arrow>
                   <Box
                     component="button"
                     type="button"
-                    onMouseDown={fire(() => onReviewTitles?.())}
+                    // Opened on click, so Enter and Space open it too; mouse-down only keeps
+                    // the grid's focus where it was.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onReviewTitles?.()}
                     sx={{ ...action, width: "auto", px: 0.9, gap: 0.5, color: tones.accepted, fontFamily: "inherit" }}
                   >
                     <Languages size={12} />
@@ -171,7 +178,7 @@ export default function IssueBar({
                 </Tooltip>
               </>
             )}
-            {editable && canFix && !titles && (
+            {editable && canFix && (
               <>
                 <Box sx={{ width: "1px", bgcolor: tint(colour, 0.25), flexShrink: 0 }} />
                 <Tooltip title={acceptLabel} arrow>
@@ -179,7 +186,7 @@ export default function IssueBar({
                     component="button"
                     type="button"
                     aria-label={acceptLabel}
-                    onMouseDown={fire(() => onAccept(g.suggested))}
+                    onMouseDown={fire(() => onAccept(inBulk))}
                     sx={{ ...action, color: tones.accepted }}
                   >
                     <Check size={12} />
@@ -191,7 +198,7 @@ export default function IssueBar({
                     component="button"
                     type="button"
                     aria-label={rejectLabel}
-                    onMouseDown={fire(() => onReject(g.suggested))}
+                    onMouseDown={fire(() => onReject(inBulk))}
                     sx={{ ...action, color: "text.secondary" }}
                   >
                     <X size={12} />

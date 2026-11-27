@@ -40,8 +40,6 @@ import { primaryBtn, quietBtn } from "./eventsStyles";
 // There is no keeping a title as it is: every title goes to Salesforce in English. One
 // answer covers every row with that title, so "Directeur Technique" on four rows is
 // asked once.
-//
-// ONE WSO2 ADDITION: not in the Marketing Ops original.
 
 /** Salesforce's Lead.Title is 128 characters. */
 const TITLE_LIMIT = 128;
@@ -152,6 +150,7 @@ export default function TitleDialog({
                   autoFocus
                   value={custom}
                   onChange={(e) => setCustom(e.target.value)}
+                  inputProps={{ "aria-label": "Your own English title" }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && own && !ownError) answer(own);
                   }}
