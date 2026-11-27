@@ -107,6 +107,7 @@ import {
 } from "./EventsUi";
 import { campaignIdFrom } from "../rules/validate";
 import { campaignUrlHint } from "../lib/campaignUrl";
+import { describeEventsError } from "../lib/serverError";
 import { normaliseSdr, sdrOwnerProblem } from "../lib/sdrOwner";
 import { EVENTS_LOADING, LEAVE_MS, primaryBtn, quietBtn, tint, useToneColors } from "./eventsStyles";
 
@@ -250,7 +251,7 @@ function Workspace({
   /** Whether every problem automatic review raised is one an admin may overrule. */
   const [canEscalate, setCanEscalate] = useState(false);
   /** Where the list went after a successful submit, for the banner that says so. */
-  const [outcome, setOutcome] = useState<"approved" | "escalated" | null>(null);
+  const [outcome, setOutcome] = useState<"approved" | "escalated" | "returned" | null>(null);
   const [escalateOpen, setEscalateOpen] = useState(false);
   /** The Review panel while it is open. */
   const [review, setReview] = useState<ReviewState | null>(null);
@@ -875,7 +876,8 @@ function Workspace({
       await flush();
       landed(await submitMutation.mutateAsync(id));
     } catch (e) {
-      setError(describeError(e));
+      // Says why — "the list changed while it was being checked" among them.
+      setError(describeEventsError(e));
     }
     setReview(null);
   }
@@ -1376,7 +1378,9 @@ function Workspace({
         <Alert severity="success" sx={{ mt: 2, fontSize: 13 }} onClose={() => setOutcome(null)}>
           {outcome === "approved"
             ? "Review complete — approved."
-            : "Sent to an admin with your note. They'll approve it or send it back — you can withdraw it until they do."}
+            : outcome === "returned"
+              ? "Review passed. An admin sent this list back earlier, so it goes back to an admin to approve — you can withdraw it until they do."
+              : "Sent to an admin with your note. They'll approve it or send it back — you can withdraw it until they do."}
         </Alert>
       )}
       {error && (

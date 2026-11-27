@@ -1131,6 +1131,10 @@ export const marketingOpsServiceUrls = {
   // Pick list columns copied from Salesforce (Industry): status (open) and Sync (admin).
   eventsPicklists: `${marketingOpsBackendUrl}/api/events/picklists`,
   eventsPicklistsSync: `${marketingOpsBackendUrl}/api/events/picklists/sync`,
+  // Job titles taken as not English, and marking one as English (both admin).
+  eventsFlaggedTitles: (q: string) =>
+    `${marketingOpsBackendUrl}/api/events/titles/flagged${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+  eventsMarkTitleEnglish: `${marketingOpsBackendUrl}/api/events/titles/mark-english`,
   eventsFields: `${marketingOpsBackendUrl}/api/events/fields`,
   eventsFieldsForTab: (tab: string) =>
     `${marketingOpsBackendUrl}/api/events/fields/${encodeURIComponent(tab)}`,

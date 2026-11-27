@@ -170,6 +170,16 @@ export interface GeographyStatus {
   refresh_hours: number;
 }
 
+/** A stored job title the check took as not English, for an admin to correct. */
+export interface FlaggedTitle {
+  key: string;
+  title: string;
+  language: string | null;
+  english: string;
+  model: string;
+  created_at: string;
+}
+
 /** A pick list column whose values are copied from a Salesforce Lead field (Industry). */
 export interface PicklistSyncStatus {
   /** Our column, e.g. "Industry". */
@@ -208,7 +218,7 @@ export interface ReviewResult {
 export interface SubmitResult {
   submitted: boolean;
   /** Where the list went: approved by automatic review, or to an admin's queue. */
-  outcome?: "approved" | "escalated" | null;
+  outcome?: "approved" | "escalated" | "returned" | null;
   problems: Problem[];
   /** True when every problem is one an admin may overrule — offer "Send to admin". */
   can_escalate?: boolean;

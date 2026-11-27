@@ -43,6 +43,7 @@ import type {
   Comment,
   FieldDef,
   FieldDefs,
+  FlaggedTitle,
   GeographyStatus,
   MemberStatus,
   MemberStatusInput,
@@ -72,6 +73,7 @@ const KEY = {
   reference: ["marketing-ops", "events", "reference"] as const,
   geography: ["marketing-ops", "events", "geography"] as const,
   picklists: ["marketing-ops", "events", "picklists"] as const,
+  flaggedTitles: (q: string) => ["marketing-ops", "events", "flagged-titles", q] as const,
   queue: ["marketing-ops", "events", "review", "queue"] as const,
   reviewSubmission: (id: string) => ["marketing-ops", "events", "review", id] as const,
   reviewComments: (id: string) => ["marketing-ops", "events", "review", "comments", id] as const,
@@ -187,6 +189,32 @@ export function useSyncPicklists() {
     },
     // A failure is recorded server-side; show it in the status too.
     onError: () => qc.invalidateQueries({ queryKey: KEY.picklists }),
+  });
+}
+
+// Job titles the check took as not English, newest first, for Settings → Events.
+export function useFlaggedTitles(q: string) {
+  const { getAccessToken, ready } = useBase();
+  return useQuery<FlaggedTitle[]>({
+    queryKey: KEY.flaggedTitles(q),
+    enabled: ready,
+    queryFn: async () =>
+      authedGet<FlaggedTitle[]>(urls.eventsFlaggedTitles(q), await getAccessToken()),
+    refetchOnMount: true,
+    retry: httpRetry,
+  });
+}
+
+// An admin says a flagged title is English: no list flags it again (a list already open
+// in someone's browser does once it is reloaded).
+export function useMarkTitleEnglish() {
+  const { getAccessToken } = useBase();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (key: string) =>
+      authedPost<{ ok: boolean }>(urls.eventsMarkTitleEnglish, await getAccessToken(), { key }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["marketing-ops", "events", "flagged-titles"] }),
   });
 }
 
