@@ -26,45 +26,53 @@ import {
   TextField,
   Typography,
 } from "@wso2/oxygen-ui";
-import { FileSpreadsheet, Upload, X } from "@wso2/oxygen-ui-icons-react";
+import { ArrowRight, Check, FileSpreadsheet, TriangleAlert, Upload, X } from "@wso2/oxygen-ui-icons-react";
 import { describeError } from "@api/errors";
 import { type EventMeta, useEventNames, useFieldDefs, useMemberStatuses } from "../../api/useEvents";
 import type { FieldDef } from "../eventsTypes";
 import { normaliseSdr } from "../lib/sdrOwner";
+import { optInMethod } from "../rules/validate";
 import { checkLeadFile, LeadFileError, MAX_FILE_BYTES, readLeadFile, type RawSheet } from "../lib/leadFile";
 import { CampaignUrlField, EventsLoading, Panel, SdrOwnerField } from "./EventsUi";
 import LeadMapping from "./LeadMapping";
+import SubmissionWorkspace from "./SubmissionWorkspace";
 import { fieldHint, fieldInput, fieldLabel, primaryBtn, quietBtn } from "./eventsStyles";
 
-// Lead import: a raw event lead file in, a submission with the mapped rows out.
+// Lead import: a raw event lead file in, a reviewed submission out — one page, three
+// steps.
 //
-// Three things up front: the event details (name, date, campaign URL), which member
-// status the leads are (it decides the columns), and the file. The file is read in the
-// browser — nothing is uploaded at this stage. The mapping screen then shows which
-// vendor column went where; the primary action creates the submission directly.
+//   1 Set up        the event details, which member status the leads are (it decides
+//                   the columns), and the file. Read in the browser, nothing uploaded.
+//   2 Map columns   which vendor column went where; the filled button creates the
+//                   submission.
+//   3 Fix & review  the submission's grid and Review — the same screen My Submissions
+//                   opens, here so nobody has to go and find it.
 //
-// Leaving the page drops the work. Mapping a file again takes seconds.
+// The step bar says where you are and goes back to any step already reached. Steps 1
+// and 2 stay mounted while hidden, so going back loses nothing; step 3 reloads from the
+// server each time, which is what lets step 2 replace its rows.
+//
+// Once the submission exists, step 1 is read-only: its details live on the submission
+// and are changed in step 3. A different file is a new import.
+//
+// Leaving the page drops steps 1 and 2. The submission itself stays in My Submissions.
 
 const ACCEPT = ".xlsx,.xlsm,.csv";
 const COLUMNS_SHOWN = 8;
 
 const STEPS = [
-  {
-    title: "Set up",
-    body: "Name the event, pick the lead type, and choose the raw file.",
-  },
-  {
-    title: "Map the columns",
-    body: "Check how vendor columns line up with template columns. Claude suggests the rest.",
-  },
-  { title: "Submit", body: "Create the submission directly — no download or re-upload needed." },
+  { title: "Set up", body: "Event details and file" },
+  { title: "Map columns", body: "Check the matches" },
+  { title: "Fix & review", body: "Fix flagged rows, then Review" },
 ];
 
+type Step = 0 | 1 | 2;
+
 interface Opened {
-  fileName: string;
+  /** The file as picked, to tell whether it changed since it was read. */
+  file: File;
   sheets: RawSheet[];
   status: string;
-  meta: EventMeta;
 }
 
 export default function LeadImport() {
@@ -81,29 +89,45 @@ export default function LeadImport() {
   const [reading, setReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
+  /** Bumped on each read, so a new file gets a fresh mapping. */
+  const [readCount, setReadCount] = useState(0);
+  const [step, setStep] = useState<Step>(0);
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+  /** Bumped when step 2 rewrites the rows, so step 3 loads them again. */
+  const [rowsVersion, setRowsVersion] = useState(0);
   const input = useRef<HTMLInputElement>(null);
 
-  if (opened && fields.data) {
-    return (
-      <LeadMapping
-        fileName={opened.fileName}
-        sheets={opened.sheets}
-        status={opened.status}
-        defs={fields.data[opened.status] ?? []}
-        meta={opened.meta}
-        onStartOver={() => {
-          setOpened(null);
-          setFile(null);
-        }}
-      />
-    );
+  const created = Boolean(submissionId);
+  const locked = reading || created;
+  const meta: EventMeta = {
+    event_name: eventName.trim(),
+    event_date: eventDate || null,
+    sf_campaign_url: campaignUrl.trim() || null,
+    sdr_owner_email: normaliseSdr(sdrOwner) || null,
+  };
+  // The file and lead type step 2 was built from are still the chosen ones.
+  const sameRead = Boolean(opened && opened.file === file && opened.status === status);
+  const reached: Step = created ? 2 : opened ? 1 : 0;
+
+  function startOver() {
+    setEventName("");
+    setEventDate("");
+    setCampaignUrl("");
+    setSdrOwner("");
+    setStatus("");
+    setFile(null);
+    setError(null);
+    setOpened(null);
+    setSubmissionId(null);
+    setStep(0);
   }
 
   // The checks that need no reading (type, size) run on pick, so a PDF is refused before
   // anyone presses a button.
   function pick(candidate: File | undefined) {
-    // The lead type and file are fixed while a read is running, so it opens what was chosen.
-    if (reading) return;
+    // The lead type and file are fixed while a read is running, so it opens what was chosen,
+    // and once the submission exists.
+    if (locked) return;
     setError(null);
     if (!candidate) return;
     try {
@@ -123,20 +147,17 @@ export default function LeadImport() {
 
   async function open() {
     if (!file || !status || !eventName.trim()) return;
+    // Nothing changed that the mapping depends on: go back to it as it was left.
+    if (sameRead) {
+      setStep(1);
+      return;
+    }
     setError(null);
     setReading(true);
     try {
-      setOpened({
-        fileName: file.name,
-        sheets: await readLeadFile(file),
-        status,
-        meta: {
-          event_name: eventName.trim(),
-          event_date: eventDate || null,
-          sf_campaign_url: campaignUrl.trim() || null,
-          sdr_owner_email: normaliseSdr(sdrOwner) || null,
-        },
-      });
+      setOpened({ file, sheets: await readLeadFile(file), status });
+      setReadCount((n) => n + 1);
+      setStep(1);
     } catch (e) {
       setError(e instanceof LeadFileError ? e.message : `The file could not be read. ${describeError(e)}`);
     } finally {
@@ -159,9 +180,23 @@ export default function LeadImport() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Steps />
+      <Steps current={step} reached={reached} onGo={setStep} />
 
-      <Panel sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+      <Panel sx={{ p: 2.5, display: step === 0 ? "flex" : "none", flexDirection: "column", gap: 2.5 }}>
+        {created && (
+          <Alert
+            severity="info"
+            sx={{ fontSize: 13 }}
+            action={
+              <Button size="small" onClick={startOver}>
+                Start a new import
+              </Button>
+            }
+          >
+            The submission for <b>{meta.event_name}</b> is created, so these are fixed here. Change the event details
+            in step 3. For a different file, start a new import — this one stays in My Submissions.
+          </Alert>
+        )}
         {live.length === 0 && (
           <Alert severity="warning" sx={{ fontSize: 13 }}>
             No lead types are in use, so there are no columns to map to. An admin sets them under Marketing Admin →
@@ -171,13 +206,13 @@ export default function LeadImport() {
 
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
           <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
-            <Typography sx={fieldLabel}>1 · Event name</Typography>
+            <Typography sx={fieldLabel}>Event name</Typography>
             <Autocomplete
               freeSolo
               options={names.data ?? []}
               inputValue={eventName}
               onInputChange={(_, v) => setEventName(v)}
-              disabled={reading}
+              disabled={locked}
               renderInput={(p) => (
                 <TextField
                   {...p}
@@ -187,6 +222,23 @@ export default function LeadImport() {
                 />
               )}
             />
+            {/* The name isn't just a label here: it becomes every lead's Opt-in method in
+                Salesforce (rules/validate.ts optInMethod), so a nickname or a file name
+                would land on every row. Show exactly what will be written. */}
+            <Box sx={{ ...fieldHint, display: "flex", alignItems: "flex-start", gap: 0.5, color: "warning.main" }}>
+              <TriangleAlert size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+              <Typography component="span" sx={{ fontSize: "inherit", color: "inherit" }}>
+                This becomes every lead's <b>Opt-in method</b> in Salesforce
+                {eventName.trim() ? (
+                  <>
+                    : <b>“{optInMethod({ name: eventName, date: eventDate, campaignUrl })}”</b>
+                  </>
+                ) : (
+                  ", with the event's year"
+                )}
+                . Use the event's full, official name, not a short name or the file's name.
+              </Typography>
+            </Box>
           </Box>
           <Box>
             <Typography sx={fieldLabel}>Event date</Typography>
@@ -195,28 +247,28 @@ export default function LeadImport() {
               size="small"
               fullWidth
               sx={fieldInput}
-              disabled={reading}
+              disabled={locked}
               value={eventDate}
               onChange={(e) => setEventDate(e.target.value)}
             />
           </Box>
           <Box>
             <Typography sx={fieldLabel}>Salesforce campaign URL</Typography>
-            <CampaignUrlField value={campaignUrl} onChange={setCampaignUrl} disabled={reading} />
+            <CampaignUrlField value={campaignUrl} onChange={setCampaignUrl} disabled={locked} />
           </Box>
           <Box>
             <Typography sx={fieldLabel}>SDR owner</Typography>
-            <SdrOwnerField value={sdrOwner} onChange={setSdrOwner} disabled={reading} />
+            <SdrOwnerField value={sdrOwner} onChange={setSdrOwner} disabled={locked} />
           </Box>
         </Box>
 
         <Box>
-          <Typography sx={fieldLabel}>2 · Which leads are these?</Typography>
+          <Typography sx={fieldLabel}>Which leads are these?</Typography>
           <Select
             size="small"
             displayEmpty
             value={status}
-            disabled={reading}
+            disabled={locked}
             onChange={(e) => setStatus(e.target.value as string)}
             inputProps={{ "aria-label": "Lead type" }}
             sx={{ minWidth: 280, fontSize: 13 }}
@@ -238,16 +290,16 @@ export default function LeadImport() {
         </Box>
 
         <Box>
-          <Typography sx={fieldLabel}>3 · The raw lead file</Typography>
+          <Typography sx={fieldLabel}>The raw lead file</Typography>
           <Box
             role="button"
             tabIndex={0}
             aria-label="Choose a lead file"
-            aria-disabled={reading}
-            onClick={() => !reading && input.current?.click()}
+            aria-disabled={locked}
+            onClick={() => !locked && input.current?.click()}
             onKeyDown={(e) => {
               // Keys pressed on the Remove button inside belong to that button.
-              if (e.target !== e.currentTarget || reading) return;
+              if (e.target !== e.currentTarget || locked) return;
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 input.current?.click();
@@ -268,8 +320,8 @@ export default function LeadImport() {
               py: file ? 2 : 4,
               px: 2,
               textAlign: "center",
-              cursor: reading ? "default" : "pointer",
-              opacity: reading ? 0.6 : 1,
+              cursor: locked ? "default" : "pointer",
+              opacity: locked ? 0.6 : 1,
               transition: "all .12s",
               "&:hover, &:focus-visible": { borderColor: "primary.main", outline: "none" },
             }}
@@ -295,7 +347,7 @@ export default function LeadImport() {
                 </Box>
                 <Button
                   aria-label="Remove the file"
-                  disabled={reading}
+                  disabled={locked}
                   sx={{ ...quietBtn, minWidth: 0, p: 0.5 }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -336,47 +388,114 @@ export default function LeadImport() {
             disabled={!file || !status || !eventName.trim() || reading}
             onClick={() => void open()}
             startIcon={reading ? <CircularProgress size={15} color="inherit" /> : undefined}
+            endIcon={reading ? undefined : <ArrowRight size={16} />}
           >
-            {reading ? "Reading the file…" : "Map columns"}
+            {reading ? "Reading the file…" : "Next: map columns"}
           </Button>
         </Box>
       </Panel>
+
+      {opened && fields.data && (
+        <Box sx={{ display: step === 1 ? "block" : "none" }}>
+          <LeadMapping
+            key={readCount}
+            fileName={opened.file.name}
+            sheets={opened.sheets}
+            status={opened.status}
+            defs={fields.data[opened.status] ?? []}
+            meta={meta}
+            submissionId={submissionId}
+            onBack={() => setStep(0)}
+            onCreated={setSubmissionId}
+            onNext={(replaced) => {
+              if (replaced) setRowsVersion((n) => n + 1);
+              setStep(2);
+            }}
+          />
+        </Box>
+      )}
+
+      {step === 2 && submissionId && (
+        <SubmissionWorkspace
+          key={rowsVersion}
+          id={submissionId}
+          onBack={() => setStep(1)}
+          backLabel="Back: map columns"
+        />
+      )}
     </Box>
   );
 }
 
-/** The three steps from raw file to submitted list, so the person knows this is step one. */
-function Steps() {
+/** The three steps, with the current one marked. A step already reached is a button
+ *  back (or forward) to it; one not reached yet is plain text. */
+function Steps({ current, reached, onGo }: { current: Step; reached: Step; onGo: (step: Step) => void }) {
   return (
-    <Box component="ol" sx={{ display: "flex", gap: 2, flexWrap: "wrap", m: 0, p: 0, listStyle: "none" }}>
-      {STEPS.map((step, i) => (
-        <Box component="li" key={step.title} sx={{ flex: "1 1 220px", display: "flex", gap: 1.25, minWidth: 0 }}>
-          <Box
-            sx={{
-              flexShrink: 0,
-              width: 22,
-              height: 22,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 12,
-              fontWeight: 700,
-              border: 1,
-              borderColor: i === 0 ? "primary.main" : "divider",
-              color: i === 0 ? "primary.main" : "text.secondary",
-            }}
-          >
-            {i + 1}
+    <Box
+      component="ol"
+      aria-label="Lead import steps"
+      sx={{ display: "flex", gap: 1, flexWrap: "wrap", m: 0, p: 0, listStyle: "none" }}
+    >
+      {STEPS.map((step, i) => {
+        const n = i as Step;
+        const here = n === current;
+        // Done once the step after it is reached: set up when the file is read, the mapping
+        // when the submission exists. The last step is finished by Review, not here.
+        const done = !here && n < reached;
+        const open = n <= reached && !here;
+        return (
+          <Box component="li" key={step.title} sx={{ flex: "1 1 200px", minWidth: 0 }}>
+            <Box
+              component={open ? "button" : "div"}
+              type={open ? "button" : undefined}
+              aria-current={here ? "step" : undefined}
+              onClick={open ? () => onGo(n) : undefined}
+              sx={{
+                width: "100%",
+                display: "flex",
+                gap: 1.25,
+                alignItems: "flex-start",
+                textAlign: "left",
+                font: "inherit",
+                p: 1.25,
+                borderRadius: 1,
+                border: 1,
+                borderColor: here ? "primary.main" : "divider",
+                bgcolor: here ? "action.selected" : "transparent",
+                cursor: open ? "pointer" : "default",
+                opacity: n > reached ? 0.55 : 1,
+                "&:hover": open ? { borderColor: "primary.main" } : undefined,
+              }}
+            >
+              <Box
+                sx={{
+                  flexShrink: 0,
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: 1,
+                  borderColor: here ? "primary.main" : done ? "success.main" : "divider",
+                  bgcolor: here ? "primary.main" : "transparent",
+                  color: here ? "primary.contrastText" : done ? "success.main" : "text.secondary",
+                }}
+              >
+                {done ? <Check size={13} /> : i + 1}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: 13, fontWeight: 700, color: here ? "text.primary" : "text.secondary" }}>
+                  {step.title}
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{step.body}</Typography>
+              </Box>
+            </Box>
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "text.primary" : "text.secondary" }}>
-              {step.title}
-            </Typography>
-            <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{step.body}</Typography>
-          </Box>
-        </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }
